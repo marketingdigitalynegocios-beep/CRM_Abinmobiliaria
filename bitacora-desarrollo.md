@@ -37,11 +37,11 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 
 ## Estado actual (se reescribe esta sección en cada entrada nueva; el historial de abajo no se toca)
 
-- **Fase activa:** 0 — Fundaciones (arrancando scaffold del proyecto)
+- **Fase activa:** 0 — Fundaciones. Todo lo que dependía solo de código está cerrado: schema Drizzle (14 tablas, con los mismos CHECK del blueprint), binding D1, Better Auth, `lib/crypto.ts`, `lib/db/tenant-scope.ts` y su prueba de aislamiento. 7 tests en verde, `npm run build` y `npx tsc --noEmit` limpios.
 - **Versión del blueprint:** v1.6
-- **Bloqueadores resueltos:** compatibilidad vinext/Next (confirmado funcionando), plan de Cloudflare Images (el flag `--image-optimization cloudflare-images` del scaffold confirma el camino técnico; falta solo confirmar costo/plan de cuenta)
-- **Bloqueadores abiertos:** duración del token de WhatsApp (riesgo 10 del blueprint) y estrategia de message templates (riesgo 11) — estos siguen bloqueando solo la Fase 3, no la 0/1/2
-- **Próximo paso:** scaffold real del proyecto en la raíz del repo (`create-vinext-app`), git init, y arrancar `lib/db/tenant-scope.ts` + su prueba de aislamiento multitenant
+- **Pendiente para cerrar la Fase 0 del todo:** aprovisionar de verdad en una cuenta de Cloudflare (`cf d1 create`, confirmar plan de Cloudflare Images, cuenta Turnstile) — requiere login/credenciales del usuario, no se puede hacer desde acá.
+- **Bloqueadores abiertos (no bloquean Fase 0/1/2):** duración del token de WhatsApp (riesgo 10 del blueprint) y estrategia de message templates (riesgo 11) — solo bloquean la Fase 3.
+- **Próximo paso:** o (a) el usuario provisiona Cloudflare para cerrar la Fase 0 por completo, o (b) se adelanta a la Fase 1 (Inventario de Propiedades) sobre el schema ya validado, y el aprovisionamiento real se hace antes del primer deploy.
 
 ---
 
@@ -155,3 +155,58 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 **Bloqueadores abiertos:** los de WhatsApp (riesgos 10 y 11 del blueprint) — no bloquean lo que sigue.
 
 **Próximo paso:** scaffold real en la raíz del repo, `git init`, primer commit, y empezar `lib/db/tenant-scope.ts` + schema Drizzle + su prueba de aislamiento multitenant.
+
+---
+
+### 2026-11-06 — Scaffold real aplicado al repo + primer commit
+
+**Quién:** sesión de planeación con Claude
+**Fase:** 0
+
+**Qué se hizo:**
+- `create-vinext-app` no aceptó el nombre de la carpeta real (`SaaS Inmobiliario V2` tiene mayúsculas/espacios, inválido como nombre de paquete npm), así que se generó en una carpeta temporal válida (`saas-inmobiliario-scaffold`) y se copiaron sus archivos a la raíz del repo, corrigiendo el `name` a `saas-inmobiliario` en `package.json` y `cloudflare.config.ts`.
+- `npm install` en la raíz real: 201 paquetes instalados correctamente.
+- `npm run build` corrió exitosamente (build de cliente + SSR para Cloudflare Workers) — confirma que el scaffold es funcional de punta a punta, no solo que el comando no tiró error.
+- Se inicializó git (`git init`) y se hizo el primer commit con la documentación (blueprint v1.6, plan, esta bitácora) + el scaffold del proyecto.
+- Se agregó `Houzez_v4.4.4_Main/` al `.gitignore` — son ~35 MB de zips de un theme de WordPress que sirven como referencia de producto, no son parte de la app, así que no se versionan (la carpeta sigue en el disco, solo no entra al repo).
+
+**Decisiones tomadas:**
+- Decisión: no versionar la carpeta `Houzez_v4.4.4_Main/`.
+  **Por qué:** es material de referencia externo (zips binarios de un theme WordPress), no código del proyecto; versionarlo infla el repo sin aportar nada que no se pueda consultar directo del disco.
+
+**Bloqueador nuevo, menor:** `cf@1.0.0-beta.28` (el CLI de Cloudflare) pide Node `^22.23.0 || ^24.22.0 || ^26.12.0`; el entorno donde se corrió esto tiene Node v24.12.0, justo por debajo del mínimo de la rama 24.x. `npm install` lo deja pasar como warning (`EBADENGINE`), no bloqueó el build, pero antes de correr comandos reales de `cf` (crear la D1, cargar secrets, deploy) hay que confirmar la versión de Node en la máquina/CI que se use para eso.
+
+**Próximo paso:** schema Drizzle completo (tablas del blueprint §6) + binding `DB: bindings.d1(...)` en `cloudflare.config.ts` + `lib/crypto.ts` + `lib/db/tenant-scope.ts` + su prueba de aislamiento multitenant. Eso cierra el criterio de salida de la Fase 0.
+
+---
+
+### 2026-11-06 — Resto de la Fase 0: schema, D1, Better Auth, crypto, tenant-scope y su prueba
+
+**Quién:** sesión de planeación con Claude
+**Fase:** 0
+
+**Qué se hizo:**
+- `lib/db/schema/` — schema completo en Drizzle: 10 tablas de dominio (`domain.ts`) + 4 de Better Auth (`auth.ts`, con `additionalFields` `tenantId`/`role`/`phone`/`isActive` en `user`). Los `CHECK` que tenía el SQL de referencia del blueprint (`type`, `operation`, `status`, `visibility`, `listing_type`, `source`, `stage` de leads y deals, `status` de visits, `plan`/`status` de subscriptions, `role` de user) se agregaron explícitamente con el helper `check()` de `drizzle-orm/sqlite-core` — Drizzle no los infiere solo del `{ enum: [...] }` de TypeScript.
+- `drizzle.config.ts` + `npx drizzle-kit generate` → `drizzle/migrations/0000_kind_speed.sql`, 14 tablas, confirmado que corre contra SQLite/D1.
+- Binding real de D1 en `cloudflare.config.ts`: `DB: bindings.d1({ name: "saas-inmobiliario-db" })`. Se leyeron los tipos instalados de `@cloudflare/config` para confirmar la firma exacta (`{ id?, name?, dev? }`) en vez de adivinarla — el blueprint tenía `databaseName` en vez de `name`, ya corregido.
+- `lib/crypto.ts` — encrypt/decrypt con Web Crypto AES-GCM. Tuvo que ajustarse con casts `as BufferSource` por un choque de tipos entre `Uint8Array` y `ArrayBuffer`/`SharedArrayBuffer` en la versión de TypeScript instalada (fricción conocida de TS reciente + DOM types, no un bug de lógica).
+- `lib/db/tenant-scope.ts` — cubre `properties` y `leads` como referencia del patrón (el resto de las tablas se suma tabla por tabla cuando se construya cada módulo en Fase 1/2, no de una sola vez acá).
+- `lib/auth/auth.ts` — Better Auth con `drizzleAdapter(db, { provider: "sqlite", schema, transaction: false })` (D1 no soporta transacciones interactivas) y plugin `magicLink` con `sendMagicLink` como placeholder que lanza error explícito hasta que se conecte a Resend en Fase 2. Se construye con una función `getAuth(env)` por request, no como singleton de módulo, porque el binding D1 solo existe dentro del contexto de un request de Workers (confirmado por búsqueda web antes de escribirlo, para no asumir mal un patrón tan central).
+- **Prueba de aislamiento multitenant** (`tests/tenant-scope.test.ts`, 4 casos) corriendo contra una base SQLite real en memoria (`better-sqlite3`), aplicando la misma migración que generó drizzle-kit — no un mock. Cierra el criterio de salida de la Fase 0 en la parte que depende de código.
+- Más un test de round-trip de `lib/crypto.ts` (3 casos).
+
+**Decisiones tomadas:**
+- Decisión: probar el aislamiento multitenant contra SQLite real (better-sqlite3) en vez de montar un entorno D1/Miniflare (`@cloudflare/vitest-pool-workers`) para esto.
+  **Por qué:** `lib/db/tenant-scope.ts` está escrito contra la API de query builder de `drizzle-orm/sqlite-core`, que es idéntica entre el driver de D1 y el de better-sqlite3 — alcanza para probar la *lógica* de aislamiento hoy mismo, sin la fricción de integrar un test runner nuevo (y potencialmente no compatible todavía con `cloudflare.config.ts`, que es muy reciente) solo para esto.
+  **Alternativa descartada (no cerrada, solo pospuesta):** `@cloudflare/vitest-pool-workers` contra un D1 real simulado por Miniflare — queda como tarea pendiente antes de considerar el aislamiento multitenant 100% probado en las condiciones exactas de producción, no solo en SQLite genérico.
+- Decisión: `created_at`/`updated_at` se generan en la aplicación (`$defaultFn`/`$onUpdate` de Drizzle) en vez de con los triggers SQL `AFTER UPDATE` que tenía el SQL de referencia del blueprint.
+  **Por qué:** consistente con la decisión ya tomada en el blueprint de generar los ids en la aplicación (`crypto.randomUUID()`) en vez de en la base de datos; evita mezclar dos estilos.
+- Decisión de implementación corrigiendo al blueprint: `cf` no usa `databaseName` sino `name` para identificar la base D1 en `bindings.d1()`.
+  **Por qué:** se verificó leyendo los tipos reales instalados (`@cloudflare/config`) en vez de confiar en el ejemplo que se había escrito de memoria en v1.6.
+
+**Bloqueadores abiertos:**
+- `@cloudflare/vitest-pool-workers` (o el equivalente que ofrezca `cf` cuando salga de beta) para probar contra D1/Miniflare real, no solo SQLite genérico.
+- Aprovisionamiento real en Cloudflare (`cf d1 create`, plan de Images, Turnstile) — requiere credenciales del usuario.
+- Los de WhatsApp (riesgos 10 y 11 del blueprint) — siguen sin bloquear nada antes de la Fase 3.
+
+**Próximo paso:** a elección — (a) aprovisionar Cloudflare de verdad para cerrar la Fase 0 al 100%, o (b) arrancar la Fase 1 (Inventario de Propiedades: CRUD de `properties`/`property_owners`, `ImageUploader`, bulk-import/bulk-status) sobre el schema ya validado.

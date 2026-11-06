@@ -12,7 +12,8 @@ Hay 4 cosas del blueprint que bloquean el arranque y deben resolverse primero (s
 
 | # | Qué confirmar | Por qué bloquea | Dueño |
 |---|---|---|---|
-| 1 | Compatibilidad de la versión exacta de Next.js con vinext (puede obligar a subir a Next 15) | Define el framework real sobre el que se construye todo | — |
+| 1 | ~~Compatibilidad de vinext~~ — **RESUELTO 2026-11-06:** `create-vinext-app` funciona y el build de producción corre sin errores | — | — |
+| 5 | Confirmar versión de Node en la máquina/CI que vaya a correr comandos de `cf` (crear D1, secrets, deploy): `cf@1.0.0-beta.28` pide `^22.23.0 \| ^24.22.0 \| ^26.12.0`, y el entorno de prueba tenía v24.12.0 (por debajo del mínimo) | Comandos de `cf` podrían fallar o comportarse distinto si Node no cumple el rango | — |
 | 2 | Plan de Cloudflare que habilita Cloudflare Images y su costo | Si no se confirma, el módulo de fotos (Fase 1) no tiene dónde apoyarse | — |
 | 3 | Con la app Tech Provider ya existente: ¿el token de WhatsApp Cloud API por tenant es de larga duración o hay que convertirlo a token de usuario de sistema? | Si no se resuelve, el agente de WhatsApp (Fase 3) deja de responder cuando el token expira, en silencio | — |
 | 4 | Estrategia de *message templates* para la ventana de 24h de Meta | Sin esto, cualquier mensaje proactivo del agente fuera de la ventana de 24h simplemente falla | — |
@@ -26,14 +27,15 @@ Hay 4 cosas del blueprint que bloquean el arranque y deben resolverse primero (s
 ### Fase 0 — Fundaciones (infraestructura + aislamiento multitenant)
 **No se escribe un solo endpoint de dominio antes de terminar esta fase.**
 
-- [ ] Provisionar Cloudflare: proyecto Workers (vinext), `wrangler d1 create`, cuenta de Cloudflare Images, cuenta Turnstile
-- [ ] Schema completo en Drizzle (todas las tablas de `blueprint-saas-inmobiliario.md` §6) + primera migración
-- [ ] Better Auth configurado (adapter D1/Drizzle, `additionalFields` para `tenant_id`/`role`/`phone`/`is_active`)
-- [ ] `lib/crypto.ts` — encrypt/decrypt con Web Crypto (AES-GCM), con test unitario
-- [ ] `lib/db/tenant-scope.ts` — capa obligatoria de acceso a datos por tenant
-- [ ] **Prueba automatizada de aislamiento multitenant:** un usuario del tenant A no puede leer ni escribir filas del tenant B, para al menos `properties` y `leads`
+- [x] Scaffold del proyecto (`create-vinext-app --platform cloudflare --image-optimization cloudflare-images`), build de producción verificado, repo git inicializado con primer commit (2026-11-06)
+- [ ] `cf d1 create` real contra una cuenta de Cloudflare (requiere login del usuario — pendiente de su lado), cuenta de Cloudflare Images confirmada con plan/costo, cuenta Turnstile
+- [x] Schema completo en Drizzle (14 tablas: 10 de dominio + 4 de Better Auth) + primera migración (`drizzle/migrations/0000_kind_speed.sql`, con los mismos CHECK del blueprint §6) + binding `DB: bindings.d1({ name: "saas-inmobiliario-db" })` en `cloudflare.config.ts` (2026-11-06)
+- [x] Better Auth configurado (`lib/auth/auth.ts`: adapter Drizzle/D1, `additionalFields` para `tenantId`/`role`/`phone`/`isActive`, factory por request) — pendiente conectar `sendMagicLink` a Resend en Fase 2 (2026-11-06)
+- [x] `lib/crypto.ts` — encrypt/decrypt con Web Crypto (AES-GCM), con test unitario (2026-11-06)
+- [x] `lib/db/tenant-scope.ts` — capa obligatoria de acceso a datos por tenant (cubre `properties` y `leads` como referencia del patrón; el resto de tablas se agrega tabla por tabla en Fase 1/2) (2026-11-06)
+- [x] **Prueba automatizada de aislamiento multitenant:** 4 casos en `tests/tenant-scope.test.ts`, corriendo contra SQLite real (better-sqlite3 + la misma migración de drizzle-kit), sin necesitar un binding D1/Miniflare (2026-11-06)
 
-**Criterio de salida:** se puede crear un tenant + usuario admin, loguearse, y la prueba de aislamiento multitenant pasa en CI/local. Sin esto no se avanza a la Fase 1.
+**Criterio de salida:** se puede crear un tenant + usuario admin, loguearse, y la prueba de aislamiento multitenant pasa en CI/local. **Cumplido en lo que depende del código** (`npm test` pasa, `npm run build` pasa); queda pendiente solo el aprovisionamiento real en una cuenta de Cloudflare (`cf d1 create`, login, migración aplicada a D1 real) antes de dar la Fase 0 por completamente cerrada — eso requiere credenciales del usuario, no es un paso que se pueda automatizar desde acá.
 
 ### Fase 1 — Inventario de Propiedades + Catálogo público
 - [ ] Onboarding: registro → tenant → slug/logo/colores

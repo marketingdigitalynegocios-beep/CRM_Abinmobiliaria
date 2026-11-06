@@ -168,7 +168,7 @@ export default defineConfig({
     env: {
       ASSETS: bindings.assets(),
       IMAGES: bindings.images(),
-      DB: bindings.d1({ databaseName: "saas-inmobiliario-db" }), // confirmar firma exacta de bindings.d1() al implementar
+      DB: bindings.d1({ name: "saas-inmobiliario-db" }), // confirmado (v1.6): D1BindingOptions = { id?, name?, dev? }
     },
   }),
 });
@@ -1384,7 +1384,7 @@ Esto es lo que v1.1 no necesitaba resolver (porque Supabase/Vercel lo resolvían
 
 1. **Pérdida de RLS nativo.** D1 no tiene Row Level Security. El aislamiento multitenant pasa a ser una convención de código (§6, §14). Mitigación mínima para aprobar el MVP: todas las queries de dominio pasan por `lib/db/tenant-scope.ts`, y existe al menos una prueba automatizada que confirma el aislamiento entre dos tenants (criterio de done #13).
 2. **El formulario público de leads no tenía protección anti-spam en v1.1.** `POST /api/leads` es un endpoint público sin autenticación; sin rate limiting ni captcha es un vector obvio de spam/abuso. Se agregó Cloudflare Turnstile en esta versión (§7, §11) — evaluar si además conviene una regla de Rate Limiting de Workers sobre ese endpoint.
-3. ~~Compatibilidad de Next.js 14 con vinext sin confirmar.~~ **RESUELTO (v1.6):** `create-vinext-app` funciona, genera un proyecto App Router + TypeScript + Tailwind funcional con `--platform cloudflare --image-optimization cloudflare-images`. No hay un paquete `next` como tal — vinext reimplementa esa superficie de API sobre Vite, así que la pregunta de "versión de Next" no aplica igual que en v1.0–v1.5. Pendiente menor: `cloudflare.config.ts` usa `bindings.d1(...)` para el binding de D1 — confirmar su firma exacta (nombre de parámetros) al implementar la Fase 0, no se verificó en este chequeo.
+3. ~~Compatibilidad de Next.js 14 con vinext sin confirmar.~~ **RESUELTO (v1.6):** `create-vinext-app` funciona, genera un proyecto App Router + TypeScript + Tailwind funcional con `--platform cloudflare --image-optimization cloudflare-images`. No hay un paquete `next` como tal — vinext reimplementa esa superficie de API sobre Vite, así que la pregunta de "versión de Next" no aplica igual que en v1.0–v1.5. **También resuelto:** la firma de `bindings.d1()` es `{ id?: string, name?: string, dev?: BindingDevOptions }` (de `@cloudflare/config`), confirmada leyendo los tipos instalados.
 4. **`@google/generative-ai` sin verificar en el runtime de Workers.** Se optó por `fetch` directo al REST API de Gemini (§11) para eliminar el riesgo en vez de verificarlo; si en el futuro se prefiere volver al SDK, confirmar antes su compatibilidad.
 5. **El modelo de "equipo/invitaciones" cambia de dueño.** En v1.1 la tabla `users` y sus políticas RLS eran propias; en v1.2 `user`/`session`/`account`/`verification` las gestiona Better Auth. El flujo de `/dashboard/settings/team` (invitar asesores) debe construirse sobre el mecanismo de invitación de Better Auth, no reinventarse.
 6. **Backups y recuperación de D1 no estaban en el alcance original.** Documentar antes del lanzamiento cómo se hace un respaldo (Time Travel de D1, o `wrangler d1 export` periódico) — en v1.1 esto lo cubría Supabase de forma transparente.

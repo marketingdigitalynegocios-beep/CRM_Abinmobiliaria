@@ -14,6 +14,7 @@ export default defineConfig({
     env: {
       ASSETS: bindings.assets(),
       IMAGES: bindings.images(),
+      DB: bindings.d1({ name: "saas-inmobiliario-db" }),
     },
   }),
 });
