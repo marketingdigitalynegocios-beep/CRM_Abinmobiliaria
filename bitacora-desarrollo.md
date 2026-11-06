@@ -37,11 +37,12 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 
 ## Estado actual (se reescribe esta sección en cada entrada nueva; el historial de abajo no se toca)
 
-- **Fase activa:** 1 — Inventario de Propiedades. **Completa y verificada en vivo**: onboarding, CRUD de propiedades/propietarios con UI de dashboard, `ImageUploader`, bulk-status/bulk-import, catálogo público y detalle con galería/mapa/WhatsApp. Se corrió el flujo real (registro → crear propiedad → verla pública → importar CSV → marcar vendida → ver el badge) contra D1 local de verdad (Miniflare), no solo tests unitarios. 15 tests unitarios en verde, `npm run build`/`npx tsc --noEmit` limpios.
+- **Fase activa:** 2 — CRM (Leads + Deals). **Completa y verificada en vivo**: formulario público con Turnstile, alta manual de contactos, calificación de leads, kanban de deals con drag & drop, agenda de visitas con detección de conflicto. 24 tests unitarios en verde, `npm run build`/`npx tsc --noEmit` limpios.
 - **Versión del blueprint:** v1.6
-- **Pendiente de Fase 0 (no bloquea seguir):** aprovisionar de verdad en una cuenta de Cloudflare (`cf d1 create`, plan de Cloudflare Images, Turnstile) — requiere login del usuario. Lo de hoy se probó contra la simulación local de Miniflare, no contra Cloudflare real.
+- **Pendiente de Fase 0 (no bloquea seguir):** aprovisionar de verdad en una cuenta de Cloudflare (`cf d1 create`, plan de Cloudflare Images, Turnstile real) — requiere login del usuario. Todo lo probado hasta ahora usa la simulación local de Miniflare y las claves de prueba públicas de Turnstile.
+- **Diferido explícitamente (no es un olvido):** notificaciones por Resend (nuevo lead, visita confirmada) — Resend ya está instalado, falta solo la API key real y el código que dispara los envíos.
 - **Bloqueadores abiertos (solo bloquean Fase 3):** duración del token de WhatsApp (riesgo 10) y estrategia de message templates (riesgo 11).
-- **Próximo paso:** probar la Fase 1 a mano desde el navegador (hasta ahora solo por API/curl), y luego decidir entre cerrar los pendientes de Fase 0 (aprovisionar Cloudflare real) o arrancar la Fase 2 (CRM: leads + deals).
+- **Próximo paso:** hacer una pasada manual desde el navegador (Fase 1 y 2 completas, probadas solo por API/curl hasta ahora), y luego decidir entre aprovisionar Cloudflare real o arrancar la Fase 3 (agente de WhatsApp) — que sigue bloqueada por los riesgos 10/11.
 
 ---
 
@@ -278,3 +279,36 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 - Sigue sin resolverse lo de `@cloudflare/vitest-pool-workers` (de Fase 0) — aunque hoy se logró una verificación en vivo equivalente a mano, no quedó automatizada como test.
 
 **Próximo paso:** verificar manualmente desde el navegador (clic a clic) el flujo de registro → crear propiedad → ver el catálogo público, y después decidir entre cerrar los pendientes de aprovisionamiento de Cloudflare o arrancar la Fase 2 (CRM: leads + deals).
+
+---
+
+### 2026-11-06 — Fase 2 completa: CRM (leads + deals) backend, UI, y verificación en vivo
+
+**Quién:** sesión de planeación con Claude
+**Fase:** 2
+
+**Qué se hizo:**
+- `lib/turnstile.ts` — `verifyTurnstileToken()` contra el endpoint real de Cloudflare Siteverify. Se usaron las claves de prueba públicas de Cloudflare (sitekey `1x00000000000000000000AA` / secreto `1x0000000000000000000000000000000AA`, documentadas oficialmente, no son de ninguna cuenta real) para poder probar el flujo completo del formulario público sin tener Cloudflare provisionado todavía.
+- `lib/validations/lead.ts`, `deal.ts`, `visit.ts` — Zod en el borde. `createLeadSchema` (pública, con Turnstile) vs. `createManualLeadSchema` (autenticada, sin Turnstile) son schemas separados a propósito.
+- `lib/db/tenant-scope.ts` — CRUD de `leads` (incluye `createLeadForTenant` que opcionalmente registra el interés en una propiedad), `deals` (con la regla de que tanto el lead como la propiedad deben ser del mismo tenant o no se crea el deal), y `visits` (con una detección simple de conflicto de agenda: mismo asesor, misma franja exacta — no solapamiento de rangos, eso queda para si hace falta más adelante). Más `listDealsWithContextForTenant` (join con lead/propiedad, solo para pintar el kanban).
+- `app/api/leads/route.ts` — **un solo endpoint con dos caminos**: con sesión es alta manual (`source: 'manual'`, sin Turnstile), sin sesión es el formulario público (con Turnstile, resolviendo el tenant por `tenantSlug`). Evitó duplicar el endpoint.
+- `app/api/leads/[id]/route.ts` (detalle + calificar), `app/api/leads/[id]/interests/route.ts`, `app/api/deals/route.ts` + `[id]/route.ts`, `app/api/visits/route.ts` + `[id]/route.ts`.
+- UI: `TurnstileWidget.tsx` (carga el script de Turnstile a mano, sin paquete de terceros — no hay uno en la lista de dependencias del blueprint), `ContactForm.tsx` (en la página de detalle de propiedad), `KanbanBoard.tsx`/`KanbanColumn.tsx`/`DealCard.tsx` (drag & drop con `@hello-pangea/dnd`), `DealForm.tsx`, `VisitScheduler.tsx`, `LeadsTable.tsx`, `NewContactForm.tsx`, y las páginas `/dashboard/crm` (kanban), `/dashboard/crm/contacts` (lista) y `/dashboard/crm/[leadId]` (detalle: intereses, deals, visitas).
+- 9 tests nuevos (`tests/crm.test.ts`): un lead colado con una propiedad de otro tenant se crea igual pero sin registrar el interés; nadie califica un lead ajeno; `addLeadPropertyInterest` es idempotente; un deal no se crea si la propiedad es de otro tenant aunque el lead sí sea propio; un lead puede tener varios deals abiertos en paralelo; nadie mueve un deal ajeno en el kanban; conflicto de agenda detectado correctamente.
+- **Verificación en vivo** (mismo D1 local de la Fase 1, ya con datos de antes): lead público con Turnstile real → `201`; lead manual autenticado → `201`; crear propiedad + lead + deal → el deal aparece en el kanban (`/dashboard/crm`) y en el detalle del lead (`/dashboard/crm/[leadId]`); mover el deal de etapa vía `PATCH /api/deals/[id]` (lo mismo que dispara el drag & drop) → se refleja; agendar una visita ligada al deal → `201` y aparece en el detalle del lead.
+- **Encontrado y resuelto durante la verificación:** reusar una cookie de sesión de una sesión de `dev` anterior (de la Fase 1) dejó de funcionar — las páginas del dashboard devolvían 307 (redirect a `/login`) y el endpoint de leads caía al camino público por falta de sesión válida. No se investigó la causa raíz (no bloqueaba nada: un registro nuevo generó una cookie fresca que funcionó de inmediato), pero queda anotado por si se repite con una sesión real de un usuario.
+
+**Decisiones tomadas:**
+- Decisión: `POST /api/leads` es un solo endpoint con dos caminos (autenticado = manual, sin sesión = público con Turnstile) en vez de dos rutas separadas.
+  **Por qué:** los dos casos escriben la misma fila con el mismo helper (`createLeadForTenant`); separar la ruta solo habría duplicado el wiring sin aportar claridad.
+- Decisión: el widget de Turnstile se integró a mano (cargar el script + `window.turnstile.render`) en vez de buscar un paquete de React para Turnstile.
+  **Por qué:** el blueprint no lista ningún paquete de Turnstile entre las dependencias, y la integración oficial es deliberadamente simple (un script + un div) — meter una dependencia nueva solo para esto no se justificaba.
+- Decisión: la detección de conflicto de agenda es "misma franja exacta", no solapamiento de rangos de horario.
+  **Por qué:** así lo describe el blueprint §7 (`409 conflicto de agenda`) sin pedir manejo de duración variable; una regla más sofisticada es una mejora de v2, no un requisito del MVP.
+
+**Bloqueadores / deuda técnica abierta:**
+- Notificaciones por Resend (nuevo lead, visita confirmada) quedaron fuera de esta pasada — diferido explícitamente, no es un olvido (ver plan-implementacion.md §Fase 2).
+- Sigue sin montarse `@cloudflare/vitest-pool-workers` (arrastrado desde Fase 0).
+- Todo lo de hoy se probó por `curl`, no haciendo clic en el navegador (mismo pendiente que la Fase 1).
+
+**Próximo paso:** pasada manual desde el navegador de las Fases 1 y 2 juntas, y después decidir entre aprovisionar Cloudflare real o intentar arrancar la Fase 3 (agente de WhatsApp) — que sigue bloqueada por los riesgos 10 y 11 del blueprint (duración del token, estrategia de message templates).

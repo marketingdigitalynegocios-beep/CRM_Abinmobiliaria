@@ -1,12 +1,24 @@
-import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import slugify from "slugify";
 import type { Db } from "./client";
-import { leads, properties, propertyImages, propertyOwners, tenants } from "./schema";
+import {
+  deals,
+  leadPropertyInterests,
+  leads,
+  properties,
+  propertyImages,
+  propertyOwners,
+  tenants,
+  visits,
+} from "./schema";
 import type { CreatePropertyInput, UpdatePropertyInput } from "../validations/property";
 import type {
   CreatePropertyOwnerInput,
   UpdatePropertyOwnerInput,
 } from "../validations/property-owner";
+import type { UpdateLeadInput } from "../validations/lead";
+import type { CreateDealInput, UpdateDealInput } from "../validations/deal";
+import type { CreateVisitInput, UpdateVisitInput } from "../validations/visit";
 
 /**
  * Capa obligatoria de acceso a datos por tenant (ver blueprint-saas-inmobiliario.md
@@ -19,11 +31,17 @@ import type {
  */
 
 // =============================================
-// Leads (referencia del patrón, Fase 0)
+// Leads — CRM (Fase 0 lectura, Fase 2 escritura/calificación)
 // =============================================
 
-export async function getLeadsForTenant(db: Db, tenantId: string) {
-  return db.select().from(leads).where(eq(leads.tenantId, tenantId));
+export async function getLeadsForTenant(db: Db, tenantId: string, stage?: string) {
+  const conditions = [eq(leads.tenantId, tenantId)];
+  if (stage) conditions.push(eq(leads.stage, stage as any));
+  return db
+    .select()
+    .from(leads)
+    .where(and(...conditions))
+    .orderBy(desc(leads.createdAt));
 }
 
 export async function getLeadForTenant(db: Db, tenantId: string, leadId: string) {
@@ -32,6 +50,270 @@ export async function getLeadForTenant(db: Db, tenantId: string, leadId: string)
     .from(leads)
     .where(and(eq(leads.id, leadId), eq(leads.tenantId, tenantId)));
   return rows[0] ?? null;
+}
+
+/**
+ * Crea un lead ya con el `tenantId` resuelto server-side (desde el `slug`
+ * para el formulario público, o desde la sesión para el alta manual) — ver
+ * blueprint §7 `POST /api/leads`.
+ */
+export async function createLeadForTenant(
+  db: Db,
+  tenantId: string,
+  input: {
+    fullName: string;
+    email?: string;
+    phone?: string;
+    whatsapp?: string;
+    source: "website" | "whatsapp" | "referral" | "manual";
+    notes?: string;
+    budgetMinCents?: number;
+    budgetMaxCents?: number;
+  },
+  propertyId?: string
+) {
+  const [lead] = await db
+    .insert(leads)
+    .values({ id: crypto.randomUUID(), tenantId, ...input })
+    .returning();
+
+  if (propertyId) {
+    // La propiedad debe pertenecer al mismo tenant; si no existe o es de otro
+    // tenant, simplemente no se registra el interés (no se filtra nada, no se
+    // rompe la creación del lead).
+    const ownProperty = await getPropertyForTenant(db, tenantId, propertyId);
+    if (ownProperty) {
+      await db
+        .insert(leadPropertyInterests)
+        .values({ id: crypto.randomUUID(), leadId: lead.id, propertyId })
+        .onConflictDoNothing();
+    }
+  }
+
+  return lead;
+}
+
+export async function updateLeadForTenant(
+  db: Db,
+  tenantId: string,
+  leadId: string,
+  input: UpdateLeadInput
+) {
+  const existing = await getLeadForTenant(db, tenantId, leadId);
+  if (!existing) return null;
+  if (Object.keys(input).length === 0) return existing;
+
+  const [row] = await db
+    .update(leads)
+    .set(input)
+    .where(and(eq(leads.id, leadId), eq(leads.tenantId, tenantId)))
+    .returning();
+
+  return row ?? null;
+}
+
+/** Ver blueprint §6: nunca se expone `propertyId` sin validar antes que el lead es del tenant. */
+export async function addLeadPropertyInterest(db: Db, tenantId: string, leadId: string, propertyId: string) {
+  const lead = await getLeadForTenant(db, tenantId, leadId);
+  const property = await getPropertyForTenant(db, tenantId, propertyId);
+  if (!lead || !property) return null;
+
+  const [row] = await db
+    .insert(leadPropertyInterests)
+    .values({ id: crypto.randomUUID(), leadId, propertyId })
+    .onConflictDoNothing()
+    .returning();
+
+  return row ?? { leadId, propertyId, alreadyExisted: true };
+}
+
+export async function listLeadPropertyInterests(db: Db, leadId: string) {
+  return db
+    .select({ property: properties })
+    .from(leadPropertyInterests)
+    .innerJoin(properties, eq(leadPropertyInterests.propertyId, properties.id))
+    .where(eq(leadPropertyInterests.leadId, leadId));
+}
+
+// =============================================
+// Deals — oportunidades (Fase 2, ver blueprint §14 "Separar Lead de Deal")
+// =============================================
+
+export interface DealFilters {
+  stage?: string;
+  leadId?: string;
+  propertyId?: string;
+}
+
+export async function listDealsForTenant(db: Db, tenantId: string, filters: DealFilters = {}) {
+  const conditions = [eq(deals.tenantId, tenantId)];
+  if (filters.stage) conditions.push(eq(deals.stage, filters.stage as any));
+  if (filters.leadId) conditions.push(eq(deals.leadId, filters.leadId));
+  if (filters.propertyId) conditions.push(eq(deals.propertyId, filters.propertyId));
+
+  return db
+    .select()
+    .from(deals)
+    .where(and(...conditions))
+    .orderBy(desc(deals.createdAt));
+}
+
+/** Igual que `listDealsForTenant`, pero con el nombre del lead y el título de
+ * la propiedad ya resueltos — solo para pintar el kanban, no para lógica de negocio. */
+export async function listDealsWithContextForTenant(
+  db: Db,
+  tenantId: string,
+  filters: DealFilters = {}
+) {
+  const conditions = [eq(deals.tenantId, tenantId)];
+  if (filters.stage) conditions.push(eq(deals.stage, filters.stage as any));
+  if (filters.leadId) conditions.push(eq(deals.leadId, filters.leadId));
+  if (filters.propertyId) conditions.push(eq(deals.propertyId, filters.propertyId));
+
+  return db
+    .select({
+      id: deals.id,
+      title: deals.title,
+      stage: deals.stage,
+      dealValueCents: deals.dealValueCents,
+      nextAction: deals.nextAction,
+      leadId: deals.leadId,
+      propertyId: deals.propertyId,
+      leadName: leads.fullName,
+      propertyTitle: properties.title,
+    })
+    .from(deals)
+    .innerJoin(leads, eq(deals.leadId, leads.id))
+    .innerJoin(properties, eq(deals.propertyId, properties.id))
+    .where(and(...conditions))
+    .orderBy(desc(deals.createdAt));
+}
+
+export async function getDealForTenant(db: Db, tenantId: string, dealId: string) {
+  const rows = await db
+    .select()
+    .from(deals)
+    .where(and(eq(deals.id, dealId), eq(deals.tenantId, tenantId)));
+  return rows[0] ?? null;
+}
+
+export async function createDealForTenant(db: Db, tenantId: string, input: CreateDealInput) {
+  // El lead y la propiedad deben pertenecer al tenant — si cualquiera de los
+  // dos no existe para este tenant, no se crea el deal (nunca se confía en
+  // los ids del body por sí solos).
+  const [lead, property] = await Promise.all([
+    getLeadForTenant(db, tenantId, input.leadId),
+    getPropertyForTenant(db, tenantId, input.propertyId),
+  ]);
+  if (!lead || !property) return null;
+
+  const [deal] = await db
+    .insert(deals)
+    .values({ id: crypto.randomUUID(), tenantId, ...input })
+    .returning();
+
+  return deal;
+}
+
+export async function updateDealForTenant(
+  db: Db,
+  tenantId: string,
+  dealId: string,
+  input: UpdateDealInput
+) {
+  const existing = await getDealForTenant(db, tenantId, dealId);
+  if (!existing) return null;
+  if (Object.keys(input).length === 0) return existing;
+
+  const [row] = await db
+    .update(deals)
+    .set(input)
+    .where(and(eq(deals.id, dealId), eq(deals.tenantId, tenantId)))
+    .returning();
+
+  return row ?? null;
+}
+
+// =============================================
+// Visits — agenda (Fase 2)
+// =============================================
+
+export async function listVisitsForTenant(db: Db, tenantId: string) {
+  return db
+    .select()
+    .from(visits)
+    .where(eq(visits.tenantId, tenantId))
+    .orderBy(visits.scheduledAt);
+}
+
+export async function listVisitsForLead(db: Db, tenantId: string, leadId: string) {
+  return db
+    .select()
+    .from(visits)
+    .where(and(eq(visits.tenantId, tenantId), eq(visits.leadId, leadId)))
+    .orderBy(visits.scheduledAt);
+}
+
+export async function createVisitForTenant(db: Db, tenantId: string, input: CreateVisitInput) {
+  const [lead, property] = await Promise.all([
+    getLeadForTenant(db, tenantId, input.leadId),
+    getPropertyForTenant(db, tenantId, input.propertyId),
+  ]);
+  if (!lead || !property) return null;
+
+  if (input.dealId) {
+    const deal = await getDealForTenant(db, tenantId, input.dealId);
+    if (!deal) return null;
+  }
+
+  // Conflicto de agenda simple: mismo asesor, misma franja exacta ya agendada
+  // (ver blueprint §7, 409). No es un chequeo de solapamiento de rangos — el
+  // MVP agenda visitas en franjas discretas, no bloques de duración variable.
+  if (input.advisorId) {
+    const clash = await db
+      .select({ id: visits.id })
+      .from(visits)
+      .where(
+        and(
+          eq(visits.tenantId, tenantId),
+          eq(visits.advisorId, input.advisorId),
+          eq(visits.scheduledAt, input.scheduledAt),
+          eq(visits.status, "scheduled")
+        )
+      )
+      .limit(1);
+    if (clash.length > 0) return "conflict" as const;
+  }
+
+  const [visit] = await db
+    .insert(visits)
+    .values({ id: crypto.randomUUID(), tenantId, ...input })
+    .returning();
+
+  return visit;
+}
+
+export async function updateVisitForTenant(
+  db: Db,
+  tenantId: string,
+  visitId: string,
+  input: UpdateVisitInput
+) {
+  const rows = await db
+    .select()
+    .from(visits)
+    .where(and(eq(visits.id, visitId), eq(visits.tenantId, tenantId)));
+  const existing = rows[0];
+  if (!existing) return null;
+  if (Object.keys(input).length === 0) return existing;
+
+  const [row] = await db
+    .update(visits)
+    .set(input)
+    .where(and(eq(visits.id, visitId), eq(visits.tenantId, tenantId)))
+    .returning();
+
+  return row ?? null;
 }
 
 // =============================================

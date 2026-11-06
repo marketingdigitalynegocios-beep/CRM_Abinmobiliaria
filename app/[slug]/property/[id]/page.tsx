@@ -9,6 +9,7 @@ import {
 } from "@/lib/db/tenant-scope";
 import { buildImageUrl } from "@/lib/images/delivery-url";
 import { AgencyHeader } from "@/components/public/AgencyHeader";
+import { ContactForm } from "@/components/public/ContactForm";
 import { PropertyGallery } from "@/components/public/PropertyGallery";
 import { PropertyMap } from "@/components/public/PropertyMap";
 import { WhatsAppButton } from "@/components/public/WhatsAppButton";
@@ -108,8 +109,11 @@ export default async function PropertyDetailPage({ params }: PageProps) {
           </div>
         )}
 
-        <div className="mt-8">
+        <div className="mt-8 flex flex-col gap-6 sm:flex-row sm:items-start">
           <WhatsAppButton message={whatsappMessage} whatsappNumber={tenant.whatsappNumber} />
+          <div className="w-full sm:max-w-sm">
+            <ContactForm propertyId={property.id} tenantSlug={slug} />
+          </div>
         </div>
       </main>
     </div>

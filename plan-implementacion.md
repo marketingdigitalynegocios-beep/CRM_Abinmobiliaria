@@ -50,11 +50,15 @@ Hay 4 cosas del blueprint que bloquean el arranque y deben resolverse primero (s
 **Criterio de salida: CUMPLIDO Y VERIFICADO EN VIVO (2026-11-06).** Se corrió `npm run dev` (vinext + D1 local vía Miniflare), se aplicó la migración directo al `.sqlite` que Miniflare persiste en `.cloudflare/state/`, y se ejecutó el flujo real con `curl`: registro → tenant creado con usuario admin → crear propiedad vía API → aparece en `/[slug]` y en `/[slug]/property/[id]` → crear propietario → importar 2 propiedades por CSV (`bulk-import`) → marcar una como vendida (`bulk-status`) y el badge "Vendida" aparece en la página pública. Pendiente real: hacerlo clic a clic desde el navegador (hasta ahora se verificó por API/curl, no con el mouse) y, por supuesto, repetirlo contra una cuenta de Cloudflare real en vez de la simulación local de Miniflare.
 
 ### Fase 2 — CRM (Leads + Deals)
-- [ ] Formulario público de contacto con Turnstile → `POST /api/leads`
-- [ ] Lista/ficha de leads, calificación (`new/contacted/disqualified`)
-- [ ] `DealForm` / `DealCard` / `KanbanBoard` sobre `deals`
-- [ ] `visits` + `VisitScheduler` (opcionalmente ligada a un `deal_id`)
-- [ ] Notificaciones por Resend (nuevo lead, visita confirmada)
+- [x] Formulario público de contacto con Turnstile → `POST /api/leads` — probado en vivo con las claves de prueba públicas de Cloudflare (2026-11-06)
+- [x] Lista/ficha de leads, calificación (`new/contacted/disqualified`), alta manual desde el dashboard (2026-11-06)
+- [x] `DealForm` / `DealCard` / `KanbanColumn` / `KanbanBoard` sobre `deals`, drag & drop con `@hello-pangea/dnd` (2026-11-06)
+- [x] `visits` + `VisitScheduler` (opcionalmente ligada a un `deal_id`), con detección simple de conflicto de agenda (2026-11-06)
+- [ ] Notificaciones por Resend (nuevo lead, visita confirmada) — diferido, ver nota abajo
+
+**Criterio de salida: CUMPLIDO Y VERIFICADO EN VIVO (2026-11-06).** Contra el mismo D1 local de la Fase 1: lead público con Turnstile → lead manual desde el dashboard → calificar lead → abrir deal sobre una propiedad → moverlo de etapa (`PATCH /api/deals/[id]`, lo que hace el drag & drop del kanban) → agendar visita ligada al deal. Todo verificado con `curl` contra las páginas y endpoints reales, más 9 tests unitarios nuevos (aislamiento multitenant en leads/deals/visits, idempotencia de intereses, conflicto de agenda).
+
+**Nota de alcance:** las notificaciones por Resend (nuevo lead, visita confirmada) se dejaron fuera de esta pasada — no bloquean el criterio de salida tal como está escrito, y Resend ya está instalado como dependencia desde la Fase 1 pero sin una API key real para probarlo en vivo. Se puede agregar como una mejora incremental sin tocar el resto del CRM.
 
 **Criterio de salida:** un lead entra por el formulario público, el admin lo califica, abre un deal sobre una propiedad, lo mueve en el kanban y agenda una visita — todo sin intervención manual en la base de datos.
 

@@ -1,13 +1,15 @@
 /**
- * Nav mínima: solo enlaza a lo que ya existe (Inventario de Propiedades,
- * Fase 1). CRM/agente de IA/settings se agregan acá mismo cuando se
- * construyan sus páginas (Fase 2+, ver plan-implementacion.md) — evitar
- * enlaces muertos mientras tanto.
+ * Nav mínima: solo enlaza a lo que ya existe (Inventario + CRM, Fase 1/2).
+ * Agente de IA/settings se agregan acá mismo cuando se construyan sus
+ * páginas (Fase 3+, ver plan-implementacion.md) — evitar enlaces muertos
+ * mientras tanto.
  */
 const links = [
   { href: "/dashboard", label: "Resumen" },
   { href: "/dashboard/properties", label: "Propiedades" },
   { href: "/dashboard/properties/owners", label: "Propietarios" },
+  { href: "/dashboard/crm", label: "Oportunidades" },
+  { href: "/dashboard/crm/contacts", label: "Contactos" },
 ];
 
 export function Sidebar() {
