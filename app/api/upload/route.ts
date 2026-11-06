@@ -9,7 +9,7 @@ const uploadRequestSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const session = await requireSession(request);
+  const session = await requireSession(request.headers);
   if (!session) return unauthorized();
 
   const body = await request.json();

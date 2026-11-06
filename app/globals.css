@@ -1,5 +1,25 @@
 @import "tailwindcss";
 
+/*
+ * Paleta del blueprint (blueprint-saas-inmobiliario.md §12), en sintaxis de
+ * Tailwind v4 (`@theme`, no `tailwind.config.ts` — el scaffold de vinext usa
+ * el config CSS-first de Tailwind v4, no v3).
+ */
+@theme {
+  --color-primary: #1b4fbf;
+  --color-primary-light: #3b82f6;
+  --color-secondary: #0ea5e9;
+  --color-accent: #f59e0b;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-dark: #0f172a;
+  --color-gray: #64748b;
+  --color-light-gray: #f1f5f9;
+  --color-border: #cbd5e1;
+
+  --font-display: Urbanist, ui-sans-serif, system-ui, sans-serif;
+}
+
 :root {
   color-scheme: light;
   background: #f8fafc;

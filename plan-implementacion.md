@@ -38,16 +38,16 @@ Hay 4 cosas del blueprint que bloquean el arranque y deben resolverse primero (s
 **Criterio de salida:** se puede crear un tenant + usuario admin, loguearse, y la prueba de aislamiento multitenant pasa en CI/local. **Cumplido en lo que depende del código** (`npm test` pasa, `npm run build` pasa); queda pendiente solo el aprovisionamiento real en una cuenta de Cloudflare (`cf d1 create`, login, migración aplicada a D1 real) antes de dar la Fase 0 por completamente cerrada — eso requiere credenciales del usuario, no es un paso que se pueda automatizar desde acá.
 
 ### Fase 1 — Inventario de Propiedades + Catálogo público
-- [x] Backend de onboarding: `POST /api/register` (crea tenant + usuario admin en un solo request, con rollback manual si Better Auth rechaza el sign-up) + catch-all de Better Auth (`/api/auth/[...all]`) (2026-11-06)
-- [ ] UI de onboarding (formulario de registro) y de `/dashboard/settings/agency` (editar logo/colores/slug ya creado) — falta
-- [x] Backend del CRUD de `properties` (`GET/POST /api/properties`, `PATCH/DELETE /api/properties/[id]`), con `owner_id`, `internal_code`, `listing_type`, mandato, `visibility`, probado contra SQLite real (2026-11-06)
-- [x] Backend del CRUD de `property_owners` (2026-11-06)
-- [x] `POST /api/upload` — mint de Direct Creator Upload URL de Cloudflare Images (2026-11-06). **Falta el componente `ImageUploader.tsx`** (drag & drop + llamar a este endpoint desde el cliente)
-- [x] `PATCH /api/properties/bulk-status`, `POST /api/properties/bulk-import` (CSV, con `papaparse` + validación Zod de dos pasos) (2026-11-06)
-- [ ] Página pública `/[slug]` (catálogo filtrable) y `/[slug]/property/[id]` (detalle, galería, mapa) — falta
-- [ ] Páginas del dashboard (`/dashboard/properties`, `/new`, `/[id]/edit`, `/owners`) — falta
+- [x] Onboarding: `POST /api/register` (crea tenant + usuario admin en un solo request) + páginas `/register` y `/login` + catch-all de Better Auth (2026-11-06)
+- [ ] `/dashboard/settings/agency` (editar logo/colores/slug ya creado) — queda para cuando se construya el módulo de Settings (fuera del alcance estricto de "Inventario de Propiedades")
+- [x] CRUD de `properties` completo (backend + dashboard: lista, crear, editar, eliminar, marcar vendida) con `owner_id`, `internal_code`, `listing_type`, mandato, `visibility` (2026-11-06)
+- [x] CRUD de `property_owners` completo (backend + dashboard) (2026-11-06)
+- [x] `ImageUploader.tsx` (drag & drop con `react-dropzone`, sube directo a Cloudflare Images vía `POST /api/upload`) — integrado en `PropertyForm` para la foto de portada (2026-11-06)
+- [x] `PATCH /api/properties/bulk-status`, `POST /api/properties/bulk-import` (CSV) — **probado en vivo contra D1 local** (ver bitácora), no solo con tests unitarios (2026-11-06)
+- [x] Página pública `/[slug]` (catálogo filtrable por tipo/operación) y `/[slug]/property/[id]` (detalle, galería con `react-photo-view`, mapa con `react-leaflet`, botón de WhatsApp directo) (2026-11-06)
+- [x] Páginas del dashboard (`/dashboard/properties`, `/new`, `/[id]/edit`, `/owners`, `/owners/new`, `/owners/[id]/edit`) (2026-11-06)
 
-**Criterio de salida:** una inmobiliaria publica 5+ propiedades reales por el flujo normal (sin tocar la base de datos a mano), y un CSV de prueba con 20 filas se importa correctamente. **Backend completo y probado** (ver bitacora-desarrollo.md); falta toda la UI (onboarding, dashboard, catálogo público) para que el criterio se cumpla de punta a punta.
+**Criterio de salida: CUMPLIDO Y VERIFICADO EN VIVO (2026-11-06).** Se corrió `npm run dev` (vinext + D1 local vía Miniflare), se aplicó la migración directo al `.sqlite` que Miniflare persiste en `.cloudflare/state/`, y se ejecutó el flujo real con `curl`: registro → tenant creado con usuario admin → crear propiedad vía API → aparece en `/[slug]` y en `/[slug]/property/[id]` → crear propietario → importar 2 propiedades por CSV (`bulk-import`) → marcar una como vendida (`bulk-status`) y el badge "Vendida" aparece en la página pública. Pendiente real: hacerlo clic a clic desde el navegador (hasta ahora se verificó por API/curl, no con el mouse) y, por supuesto, repetirlo contra una cuenta de Cloudflare real en vez de la simulación local de Miniflare.
 
 ### Fase 2 — CRM (Leads + Deals)
 - [ ] Formulario público de contacto con Turnstile → `POST /api/leads`

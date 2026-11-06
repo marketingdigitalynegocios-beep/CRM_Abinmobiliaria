@@ -1,7 +1,7 @@
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 import slugify from "slugify";
 import type { Db } from "./client";
-import { leads, properties, propertyOwners, tenants } from "./schema";
+import { leads, properties, propertyImages, propertyOwners, tenants } from "./schema";
 import type { CreatePropertyInput, UpdatePropertyInput } from "../validations/property";
 import type {
   CreatePropertyOwnerInput,
@@ -295,6 +295,20 @@ export async function listPublishedPropertiesForTenant(
   ]);
 
   return { properties: rows, total: countRows[0]?.count ?? 0, page, limit };
+}
+
+/**
+ * Sin filtro de tenant propio: `property_images` solo tiene FK a `property_id`,
+ * así que esto se llama DESPUÉS de validar con `getPublishedPropertyForTenant`
+ * / `getPropertyForTenant` que esa propiedad pertenece al tenant correcto —
+ * nunca se expone un `propertyId` sin esa validación previa.
+ */
+export async function listPropertyImages(db: Db, propertyId: string) {
+  return db
+    .select()
+    .from(propertyImages)
+    .where(eq(propertyImages.propertyId, propertyId))
+    .orderBy(propertyImages.position);
 }
 
 export async function getPublishedPropertyForTenant(

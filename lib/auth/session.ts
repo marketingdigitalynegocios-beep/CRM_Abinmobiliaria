@@ -1,14 +1,16 @@
 import { getAuth } from "./auth";
 
 /**
- * Resuelve la sesión autenticada de un request. El `tenantId` que devuelve es
- * el único que cualquier Route Handler debe usar — nunca uno que venga del
- * body o la query del request (ver blueprint-saas-inmobiliario.md §6,
- * "Aislamiento multitenant: sin RLS, forzado en código").
+ * Resuelve la sesión autenticada a partir de los headers de la request (los
+ * de un Route Handler, `request.headers`, o los de un Server Component vía
+ * `headers()` de `next/headers` — ambos son `Headers`). El `tenantId` que
+ * devuelve es el único que cualquier endpoint o página debe usar — nunca uno
+ * que venga del body/query del request (ver blueprint §6, "Aislamiento
+ * multitenant: sin RLS, forzado en código").
  */
-export async function requireSession(request: Request) {
+export async function requireSession(headers: Headers) {
   const auth = getAuth();
-  const result = await auth.api.getSession({ headers: request.headers });
+  const result = await auth.api.getSession({ headers });
 
   if (!result?.session || !result.user) {
     return null;

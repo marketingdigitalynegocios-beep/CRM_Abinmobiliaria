@@ -6,7 +6,7 @@ import { validationError } from "../../../../lib/http";
 import { bulkStatusSchema } from "../../../../lib/validations/property";
 
 export async function PATCH(request: Request) {
-  const session = await requireSession(request);
+  const session = await requireSession(request.headers);
   if (!session) return unauthorized();
 
   const body = await request.json();

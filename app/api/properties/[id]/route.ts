@@ -10,7 +10,7 @@ import { jsonError, validationError } from "../../../../lib/http";
 import { updatePropertySchema } from "../../../../lib/validations/property";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await requireSession(request);
+  const session = await requireSession(request.headers);
   if (!session) return unauthorized();
 
   const { id } = await params;
@@ -32,7 +32,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await requireSession(request);
+  const session = await requireSession(request.headers);
   if (!session) return unauthorized();
 
   const { id } = await params;

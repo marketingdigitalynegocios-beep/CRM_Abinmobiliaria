@@ -8,7 +8,7 @@ import { createPropertySchema } from "../../../../lib/validations/property";
 import { cleanCsvRow, csvPropertyRowSchema } from "../../../../lib/validations/property-import";
 
 export async function POST(request: Request) {
-  const session = await requireSession(request);
+  const session = await requireSession(request.headers);
   if (!session) return unauthorized();
 
   const formData = await request.formData();

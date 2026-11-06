@@ -6,7 +6,7 @@ import { validationError } from "../../../lib/http";
 import { createPropertyOwnerSchema } from "../../../lib/validations/property-owner";
 
 export async function GET(request: Request) {
-  const session = await requireSession(request);
+  const session = await requireSession(request.headers);
   if (!session) return unauthorized();
 
   const url = new URL(request.url);
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = await requireSession(request);
+  const session = await requireSession(request.headers);
   if (!session) return unauthorized();
 
   const body = await request.json();

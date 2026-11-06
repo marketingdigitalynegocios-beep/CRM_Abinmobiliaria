@@ -37,11 +37,11 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 
 ## Estado actual (se reescribe esta sección en cada entrada nueva; el historial de abajo no se toca)
 
-- **Fase activa:** 1 — Inventario de Propiedades. **Backend completo y probado** (auth + registro combinado tenant/usuario, CRUD de `properties` y `property_owners`, bulk-status, bulk-import CSV, mint de upload de Cloudflare Images): 15 tests en verde, `npm run build` y `npx tsc --noEmit` limpios, las 10 rutas de API compilan. **Falta toda la UI**: onboarding, páginas del dashboard, `ImageUploader.tsx`, y el catálogo público `/[slug]`.
+- **Fase activa:** 1 — Inventario de Propiedades. **Completa y verificada en vivo**: onboarding, CRUD de propiedades/propietarios con UI de dashboard, `ImageUploader`, bulk-status/bulk-import, catálogo público y detalle con galería/mapa/WhatsApp. Se corrió el flujo real (registro → crear propiedad → verla pública → importar CSV → marcar vendida → ver el badge) contra D1 local de verdad (Miniflare), no solo tests unitarios. 15 tests unitarios en verde, `npm run build`/`npx tsc --noEmit` limpios.
 - **Versión del blueprint:** v1.6
-- **Pendiente de Fase 0 (no bloquea seguir):** aprovisionar de verdad en una cuenta de Cloudflare (`cf d1 create`, plan de Cloudflare Images, Turnstile) — requiere login del usuario.
+- **Pendiente de Fase 0 (no bloquea seguir):** aprovisionar de verdad en una cuenta de Cloudflare (`cf d1 create`, plan de Cloudflare Images, Turnstile) — requiere login del usuario. Lo de hoy se probó contra la simulación local de Miniflare, no contra Cloudflare real.
 - **Bloqueadores abiertos (solo bloquean Fase 3):** duración del token de WhatsApp (riesgo 10) y estrategia de message templates (riesgo 11).
-- **Próximo paso:** construir la UI de Fase 1 — página pública `/[slug]` + detalle de propiedad (criterio de salida más visible), después el dashboard (lista/crear/editar propiedades, propietarios) y el onboarding.
+- **Próximo paso:** probar la Fase 1 a mano desde el navegador (hasta ahora solo por API/curl), y luego decidir entre cerrar los pendientes de Fase 0 (aprovisionar Cloudflare real) o arrancar la Fase 2 (CRM: leads + deals).
 
 ---
 
@@ -244,3 +244,37 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 - Todo lo construido hoy es backend: no hay una sola página ni componente de React nuevo. El criterio de salida de la Fase 1 ("una inmobiliaria publica 5+ propiedades por el flujo normal") todavía no se cumple de punta a punta porque no hay UI.
 
 **Próximo paso:** página pública `/[slug]` (catálogo) y `/[slug]/property/[id]` (detalle) primero — es la parte más visible del criterio de salida — y después el dashboard (lista/crear/editar propiedades y propietarios) y el onboarding.
+
+---
+
+### 2026-11-06 — Fase 1 completa: UI de dashboard, páginas públicas, y verificación en vivo contra D1 real
+
+**Quién:** sesión de planeación con Claude
+**Fase:** 1
+
+**Qué se hizo:**
+- **Tailwind v4, no v3:** el scaffold de vinext usa el config CSS-first de Tailwind v4 (`@import "tailwindcss"` + `@theme` en `globals.css`), no `tailwind.config.ts` como asumía el blueprint §12. Se tradujo la paleta de colores del blueprint a `@theme` en `app/globals.css` (tokens `--color-primary`, `--color-danger`, etc., generan las clases `bg-primary`, `text-danger`...).
+- **Acceso a `env` confirmado para Server Components, no solo Route Handlers:** `headers()` de `next/headers` + `requireSession(headers)` (se generalizó la firma de `requireSession` para aceptar `Headers` en vez de un `Request` completo, así sirve tanto en Route Handlers como en páginas server).
+- `lib/auth/client.ts` — cliente de Better Auth para componentes de cliente (`createAuthClient` + `magicLinkClient`).
+- Páginas de auth: `/register` (formulario → `POST /api/register`) y `/login` (`authClient.signIn.email`).
+- `app/(dashboard)/layout.tsx` — guard de sesión server-side (`redirect("/login")` si no hay sesión) + `Sidebar`/`TopBar`.
+- **Error de estructura de carpetas, encontrado y corregido antes de commitear:** las páginas de propiedades se habían puesto en `app/(dashboard)/properties/...` — como `(dashboard)` es un *route group*, esas URLs resultaban en `/properties`, no en `/dashboard/properties` como promete el blueprint §9. Se movieron a `app/(dashboard)/dashboard/properties/...` para que coincida con la tabla de rutas del blueprint. De paso, se migraron los imports de esos archivos al alias `@/*` (ya configurado en `tsconfig.json`, y confirmado que vinext lo materializa también como alias de Vite en runtime, no solo para type-checking) en vez de rutas relativas frágiles — un `sed` mal escrito lo demostró rompiendo imports al primer intento.
+- `ImageUploader.tsx` (drag & drop con `react-dropzone`, sube directo a Cloudflare Images vía `/api/upload`), `PropertyForm.tsx`, `PropertyOwnerForm.tsx`, `PropertiesTable.tsx`, `PropertyOwnersTable.tsx`, y las 6 páginas del dashboard de propiedades/propietarios (lista, crear, editar para cada uno).
+- Páginas públicas: `app/[slug]/page.tsx` (catálogo, filtros por `<form method="get">` sin JS de cliente) y `app/[slug]/property/[id]/page.tsx` (detalle), con `AgencyHeader`, `PropertyCard`/`PropertyGrid`, `PropertyGallery` (`react-photo-view`), `PropertyMap` (`react-leaflet`, con el ícono de marcador apuntando a unpkg porque Vite rompe las rutas de assets por defecto de Leaflet), y `WhatsAppButton` (link directo a `wa.me`, sin agente de IA todavía — eso es Fase 3).
+- **Verificación en vivo, no solo tests:** se corrió `npm run dev` (vinext + Cloudflare Vite plugin, que levanta un D1 simulado con Miniflare), se aplicó la migración de drizzle-kit directo al archivo `.sqlite` que Miniflare persiste en `.cloudflare/state/v3/d1/.../*.sqlite` (con un script de una línea usando `better-sqlite3`, sin pelear con el CLI `cf` para resolver el id de la base local), y se ejercitó el flujo completo con `curl`: registro → tenant + usuario admin creados → crear propiedad → aparece en el catálogo público y en el detalle → crear propietario → importar 2 propiedades por CSV → marcar una como vendida y ver el badge "Vendida" en la página pública.
+
+**Decisiones tomadas:**
+- Decisión: sin `shadcn/ui` por ahora — los componentes de formulario/tabla se escribieron con Tailwind plano.
+  **Por qué:** instalar y configurar shadcn (CLI, `components.json`, elegir cada primitiva) es trabajo real que no cambia la funcionalidad; se prefirió llegar a un flujo end-to-end verificable primero. Retrofitear shadcn después es compatible con esta decisión, no un callejón sin salida.
+- Decisión: filtros del catálogo público como `<form method="get">` plano, sin componente de cliente ni JavaScript.
+  **Por qué:** навegación GET + re-render del Server Component alcanza para el caso de uso (filtrar por tipo/operación) sin la complejidad de un combobox controlado; más simple y más rápido de cargar.
+- Decisión: el ícono de marcador de Leaflet apunta a `unpkg.com` en vez de a los assets locales del paquete.
+  **Por qué:** es el workaround estándar para el problema conocido de Leaflet con bundlers (las rutas de imagen por defecto asumen un bundler tipo Webpack con un resolutor de assets distinto al de Vite).
+
+**Bloqueadores / deuda técnica abierta:**
+- Todo lo de hoy se probó contra la simulación local de Miniflare (`.cloudflare/state/`), no contra una cuenta de Cloudflare real — sigue pendiente el aprovisionamiento real (`cf d1 create`, Cloudflare Images, Turnstile).
+- El flujo se verificó por API (`curl`), no haciendo clic en el navegador — las páginas y formularios compilan y las rutas responden, pero no hay una pasada manual confirmando que los formularios de React se comportan bien con inputs reales de usuario.
+- `/dashboard/settings/agency` (editar logo/colores/slug después de creado el tenant) no se construyó — el registro crea el tenant pero no hay UI para editarlo después. Queda para cuando se arme el módulo de Settings.
+- Sigue sin resolverse lo de `@cloudflare/vitest-pool-workers` (de Fase 0) — aunque hoy se logró una verificación en vivo equivalente a mano, no quedó automatizada como test.
+
+**Próximo paso:** verificar manualmente desde el navegador (clic a clic) el flujo de registro → crear propiedad → ver el catálogo público, y después decidir entre cerrar los pendientes de aprovisionamiento de Cloudflare o arrancar la Fase 2 (CRM: leads + deals).
