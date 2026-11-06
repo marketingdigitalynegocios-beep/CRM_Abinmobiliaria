@@ -1,0 +1,12 @@
+node_modules
+.env*
+.dev.vars
+.next
+next-env.d.ts
+/dist/
+.vinext/
+.cloudflare/
+*.DS_Store
+
+# Material de referencia (theme WordPress, no es parte de la app) — no se versiona, solo se consulta localmente
+Houzez_v4.4.4_Main/
