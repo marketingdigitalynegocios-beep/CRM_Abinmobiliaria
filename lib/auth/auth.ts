@@ -1,25 +1,22 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { magicLink } from "better-auth/plugins/magic-link";
+import { env } from "cloudflare:workers";
 import { getDb } from "../db/client";
 import * as schema from "../db/schema";
-
-export interface AuthEnv {
-  DB: D1Database;
-  BETTER_AUTH_SECRET: string;
-  NEXT_PUBLIC_APP_URL: string;
-}
 
 /**
  * Better Auth se construye por request, nunca como singleton a nivel de
  * módulo: el binding D1 (`env.DB`) solo existe dentro del contexto de un
  * request de Workers — no se puede capturar en una variable de módulo creada
- * al cargar el archivo. Ver bitacora-desarrollo.md, entrada de Fase 0.
+ * al cargar el archivo. `env` viene de `cloudflare:workers` (API nativa del
+ * runtime, respaldada por AsyncLocalStorage), así que no hace falta pasarlo
+ * a mano por cada Route Handler. Ver bitacora-desarrollo.md, entrada de Fase 1.
  *
  * `sendMagicLink` queda sin implementar por ahora (placeholder): el envío real
- * por Resend es trabajo de la Fase 2 (notificaciones), no de la Fase 0.
+ * por Resend es trabajo de la Fase 2 (notificaciones), no de la Fase 0/1.
  */
-export function getAuth(env: AuthEnv) {
+export function getAuth() {
   const db = getDb(env.DB);
 
   return betterAuth({

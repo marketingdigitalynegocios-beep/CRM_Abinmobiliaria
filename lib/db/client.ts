@@ -1,6 +1,4 @@
 import { drizzle } from "drizzle-orm/d1";
-import type { DrizzleD1Database } from "drizzle-orm/d1";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema";
 
 /**
@@ -13,10 +11,13 @@ export function getDb(d1: D1Database) {
 }
 
 /**
- * Tipo compartido entre el driver de producción (D1) y el driver usado en
- * tests (better-sqlite3, ver tests/tenant-scope.test.ts) — ambos exponen la
- * misma API de query builder de drizzle-orm/sqlite-core, así que el código de
- * `tenant-scope.ts` se escribe una sola vez y se prueba contra SQLite real sin
- * necesitar un binding D1/Miniflare para correr el test.
+ * `Db` es el tipo del driver de producción (D1). En tests (better-sqlite3,
+ * ver tests/tenant-scope.test.ts) se castea explícitamente con
+ * `as unknown as Db`: ambos drivers exponen la misma API de query builder de
+ * drizzle-orm/sqlite-core en runtime, pero unir sus dos tipos (`A | B`) rompe
+ * la inferencia de TypeScript al encadenar `.select().where()...` — Drizzle no
+ * resuelve bien los overloads de un query builder sobre un tipo unión. El cast
+ * es la forma correcta de modelar "mismo contrato en runtime, un solo tipo
+ * nominal en producción" acá, no un atajo para evitar escribir el tipo bien.
  */
-export type Db = DrizzleD1Database<typeof schema> | BetterSQLite3Database<typeof schema>;
+export type Db = ReturnType<typeof getDb>;

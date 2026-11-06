@@ -15,6 +15,26 @@ export default defineConfig({
       ASSETS: bindings.assets(),
       IMAGES: bindings.images(),
       DB: bindings.d1({ name: "saas-inmobiliario-db" }),
+
+      // Config de runtime del Worker (no hay un binding "var" plano en `cf`
+      // todavía — `bindings.secret()` es el mecanismo genérico encontrado para
+      // inyectar strings en env; ninguno de estos es sensible aparte del valor
+      // real que se cargue). Valores reales con `cf workers secrets update`.
+      NEXT_PUBLIC_APP_URL: bindings.secret(),
+
+      // Secrets reales (ver blueprint-saas-inmobiliario.md §10)
+      WOMPI_PRIVATE_KEY: bindings.secret(),
+      WOMPI_EVENTS_SECRET: bindings.secret(),
+      GEMINI_API_KEY: bindings.secret(),
+      RESEND_API_KEY: bindings.secret(),
+      RESEND_FROM_EMAIL: bindings.secret(),
+      META_APP_SECRET: bindings.secret(),
+      META_WEBHOOK_VERIFY_TOKEN: bindings.secret(),
+      ENCRYPTION_KEY: bindings.secret(),
+      BETTER_AUTH_SECRET: bindings.secret(),
+      CLOUDFLARE_IMAGES_API_TOKEN: bindings.secret(),
+      CLOUDFLARE_ACCOUNT_ID: bindings.secret(),
+      TURNSTILE_SECRET_KEY: bindings.secret(),
     },
   }),
 });

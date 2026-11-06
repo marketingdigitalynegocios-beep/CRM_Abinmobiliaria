@@ -6,8 +6,8 @@ import type { Db } from "../lib/db/client";
 import {
   getLeadForTenant,
   getLeadsForTenant,
-  getPropertiesForTenant,
   getPropertyForTenant,
+  listPropertiesForTenant,
 } from "../lib/db/tenant-scope";
 import { applyMigrations } from "./setup/migrate";
 
@@ -80,14 +80,15 @@ describe("aislamiento multitenant (lib/db/tenant-scope.ts)", () => {
       .run();
   });
 
-  it("solo devuelve las propiedades del propio tenant en getPropertiesForTenant", async () => {
-    const propsA = await getPropertiesForTenant(db, tenantAId);
-    expect(propsA).toHaveLength(1);
-    expect(propsA[0].id).toBe(propertyAId);
+  it("solo devuelve las propiedades del propio tenant en listPropertiesForTenant", async () => {
+    const resultA = await listPropertiesForTenant(db, tenantAId);
+    expect(resultA.properties).toHaveLength(1);
+    expect(resultA.properties[0].id).toBe(propertyAId);
+    expect(resultA.total).toBe(1);
 
-    const propsB = await getPropertiesForTenant(db, tenantBId);
-    expect(propsB).toHaveLength(1);
-    expect(propsB[0].id).toBe(propertyBId);
+    const resultB = await listPropertiesForTenant(db, tenantBId);
+    expect(resultB.properties).toHaveLength(1);
+    expect(resultB.properties[0].id).toBe(propertyBId);
   });
 
   it("no permite leer una propiedad de otro tenant por id (getPropertyForTenant)", async () => {

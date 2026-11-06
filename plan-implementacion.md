@@ -38,14 +38,16 @@ Hay 4 cosas del blueprint que bloquean el arranque y deben resolverse primero (s
 **Criterio de salida:** se puede crear un tenant + usuario admin, loguearse, y la prueba de aislamiento multitenant pasa en CI/local. **Cumplido en lo que depende del código** (`npm test` pasa, `npm run build` pasa); queda pendiente solo el aprovisionamiento real en una cuenta de Cloudflare (`cf d1 create`, login, migración aplicada a D1 real) antes de dar la Fase 0 por completamente cerrada — eso requiere credenciales del usuario, no es un paso que se pueda automatizar desde acá.
 
 ### Fase 1 — Inventario de Propiedades + Catálogo público
-- [ ] Onboarding: registro → tenant → slug/logo/colores
-- [ ] CRUD de `properties` (incluye `owner_id`, `internal_code`, `listing_type`, mandato, `visibility`)
-- [ ] CRUD de `property_owners`
-- [ ] `ImageUploader` con Cloudflare Images (direct creator upload)
-- [ ] `PATCH /api/properties/bulk-status`, `POST /api/properties/bulk-import` (CSV)
-- [ ] Página pública `/[slug]` (catálogo filtrable) y `/[slug]/property/[id]` (detalle, galería, mapa)
+- [x] Backend de onboarding: `POST /api/register` (crea tenant + usuario admin en un solo request, con rollback manual si Better Auth rechaza el sign-up) + catch-all de Better Auth (`/api/auth/[...all]`) (2026-11-06)
+- [ ] UI de onboarding (formulario de registro) y de `/dashboard/settings/agency` (editar logo/colores/slug ya creado) — falta
+- [x] Backend del CRUD de `properties` (`GET/POST /api/properties`, `PATCH/DELETE /api/properties/[id]`), con `owner_id`, `internal_code`, `listing_type`, mandato, `visibility`, probado contra SQLite real (2026-11-06)
+- [x] Backend del CRUD de `property_owners` (2026-11-06)
+- [x] `POST /api/upload` — mint de Direct Creator Upload URL de Cloudflare Images (2026-11-06). **Falta el componente `ImageUploader.tsx`** (drag & drop + llamar a este endpoint desde el cliente)
+- [x] `PATCH /api/properties/bulk-status`, `POST /api/properties/bulk-import` (CSV, con `papaparse` + validación Zod de dos pasos) (2026-11-06)
+- [ ] Página pública `/[slug]` (catálogo filtrable) y `/[slug]/property/[id]` (detalle, galería, mapa) — falta
+- [ ] Páginas del dashboard (`/dashboard/properties`, `/new`, `/[id]/edit`, `/owners`) — falta
 
-**Criterio de salida:** una inmobiliaria publica 5+ propiedades reales por el flujo normal (sin tocar la base de datos a mano), y un CSV de prueba con 20 filas se importa correctamente.
+**Criterio de salida:** una inmobiliaria publica 5+ propiedades reales por el flujo normal (sin tocar la base de datos a mano), y un CSV de prueba con 20 filas se importa correctamente. **Backend completo y probado** (ver bitacora-desarrollo.md); falta toda la UI (onboarding, dashboard, catálogo público) para que el criterio se cumpla de punta a punta.
 
 ### Fase 2 — CRM (Leads + Deals)
 - [ ] Formulario público de contacto con Turnstile → `POST /api/leads`

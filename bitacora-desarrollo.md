@@ -37,11 +37,11 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 
 ## Estado actual (se reescribe esta sección en cada entrada nueva; el historial de abajo no se toca)
 
-- **Fase activa:** 0 — Fundaciones. Todo lo que dependía solo de código está cerrado: schema Drizzle (14 tablas, con los mismos CHECK del blueprint), binding D1, Better Auth, `lib/crypto.ts`, `lib/db/tenant-scope.ts` y su prueba de aislamiento. 7 tests en verde, `npm run build` y `npx tsc --noEmit` limpios.
+- **Fase activa:** 1 — Inventario de Propiedades. **Backend completo y probado** (auth + registro combinado tenant/usuario, CRUD de `properties` y `property_owners`, bulk-status, bulk-import CSV, mint de upload de Cloudflare Images): 15 tests en verde, `npm run build` y `npx tsc --noEmit` limpios, las 10 rutas de API compilan. **Falta toda la UI**: onboarding, páginas del dashboard, `ImageUploader.tsx`, y el catálogo público `/[slug]`.
 - **Versión del blueprint:** v1.6
-- **Pendiente para cerrar la Fase 0 del todo:** aprovisionar de verdad en una cuenta de Cloudflare (`cf d1 create`, confirmar plan de Cloudflare Images, cuenta Turnstile) — requiere login/credenciales del usuario, no se puede hacer desde acá.
-- **Bloqueadores abiertos (no bloquean Fase 0/1/2):** duración del token de WhatsApp (riesgo 10 del blueprint) y estrategia de message templates (riesgo 11) — solo bloquean la Fase 3.
-- **Próximo paso:** o (a) el usuario provisiona Cloudflare para cerrar la Fase 0 por completo, o (b) se adelanta a la Fase 1 (Inventario de Propiedades) sobre el schema ya validado, y el aprovisionamiento real se hace antes del primer deploy.
+- **Pendiente de Fase 0 (no bloquea seguir):** aprovisionar de verdad en una cuenta de Cloudflare (`cf d1 create`, plan de Cloudflare Images, Turnstile) — requiere login del usuario.
+- **Bloqueadores abiertos (solo bloquean Fase 3):** duración del token de WhatsApp (riesgo 10) y estrategia de message templates (riesgo 11).
+- **Próximo paso:** construir la UI de Fase 1 — página pública `/[slug]` + detalle de propiedad (criterio de salida más visible), después el dashboard (lista/crear/editar propiedades, propietarios) y el onboarding.
 
 ---
 
@@ -210,3 +210,37 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 - Los de WhatsApp (riesgos 10 y 11 del blueprint) — siguen sin bloquear nada antes de la Fase 3.
 
 **Próximo paso:** a elección — (a) aprovisionar Cloudflare de verdad para cerrar la Fase 0 al 100%, o (b) arrancar la Fase 1 (Inventario de Propiedades: CRUD de `properties`/`property_owners`, `ImageUploader`, bulk-import/bulk-status) sobre el schema ya validado.
+
+---
+
+### 2026-11-06 — Fase 1, backend: auth real, registro combinado, CRUD de inventario, bulk e imágenes
+
+**Quién:** sesión de planeación con Claude
+**Fase:** 1
+
+**Qué se hizo:**
+- **Acceso a `env` dentro de Route Handlers:** se confirmó (leyendo `@cloudflare/workers-types`) que `import { env } from "cloudflare:workers"` da acceso a los bindings del Worker desde cualquier punto del código, respaldado por AsyncLocalStorage — no hace falta pasar `env` a mano por cada función. `lib/auth/auth.ts` se actualizó para usarlo (antes recibía `env` como parámetro).
+- `cloudflare.config.ts`: se agregaron como `bindings.secret()` todos los secrets del blueprint (`WOMPI_*`, `GEMINI_API_KEY`, `RESEND_*`, `META_*`, `ENCRYPTION_KEY`, `BETTER_AUTH_SECRET`, `CLOUDFLARE_IMAGES_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `TURNSTILE_SECRET_KEY`) más `NEXT_PUBLIC_APP_URL` — es el único mecanismo de "variable de runtime" que tiene `cf` hoy (no existe un binding tipo `vars` plano como en `wrangler.toml`).
+- `lib/auth/session.ts` — `requireSession(request)`: resuelve `{ user, session, tenantId, role }` desde la cookie, y trata "sesión sin tenant" igual que "sin sesión" para no arriesgar nada.
+- `app/api/auth/[...all]/route.ts` — catch-all de Better Auth (`getAuth()` se instancia dentro del handler, nunca a nivel de módulo).
+- `app/api/register/route.ts` — registro combinado: crea el `tenant` primero, luego `auth.api.signUpEmail({ body: { email, password, name, tenantId, role: "admin" }, asResponse: true })` (el `tenantId`/`role` pasan porque son `additionalFields` de `user`), y revierte el tenant si el sign-up falla. No es atómico a nivel de motor (D1 no soporta transacciones interactivas con este adapter) — queda documentado como limitación conocida, no oculto.
+- `lib/db/tenant-scope.ts` — se extendió con CRUD completo de `properties` (list con filtros+paginación, get, create con generación de slug único por tenant, update, delete) y `property_owners` (list con búsqueda, get, create, update, delete con bloqueo si tiene propiedades asociadas), más `bulkUpdatePropertyStatusForTenant` (filtra por tenant aunque lleguen ids ajenos en la lista) y los helpers públicos `getTenantBySlug`/`listPublishedPropertiesForTenant`/`getPublishedPropertyForTenant` (solo `visibility = 'published'`).
+- `lib/validations/property.ts`, `property-owner.ts`, `property-import.ts`, `agency.ts` — Zod en el borde de cada endpoint.
+- `lib/images/cloudflare-images.ts` + `app/api/upload/route.ts` — mint de Direct Creator Upload URL (metadata `{ tenant_id, context }`), tal como lo describe el blueprint §7/§11.
+- `app/api/properties/bulk-import/route.ts` — CSV con `papaparse`, validación en dos pasos (coerción de tipos → reglas de negocio de `createPropertySchema`), reporta `created`/`skipped`/`errors` por fila.
+- 8 nuevos tests (`tests/properties.test.ts`): slug único por tenant (incluso con título repetido), que nadie edita/borra una propiedad de otro tenant, que `bulk-status` no toca ids ajenos aunque vengan en la lista, que el catálogo público filtra por `visibility`, y que no se puede borrar un propietario con propiedades asociadas.
+
+**Decisiones tomadas:**
+- Decisión: el catálogo público filtra por `visibility = 'published'`, sin excluir por `status` (una propiedad `sold` sigue siendo visible, con badge, en vez de desaparecer).
+  **Por qué:** es el comportamiento típico de sitios inmobiliarios reales (prueba social, SEO de la ficha); `status` gobierna disponibilidad comercial, `visibility` gobierna si aparece en la web — son preguntas distintas (ver blueprint v1.4).
+- Decisión: el CSV de importación usa nombres de columna fijos (los mismos campos camelCase del body de `POST /api/properties`), sin un mapeador de columnas configurable.
+  **Por qué:** un mapeador de columnas es una feature en sí misma (UI para mapear encabezados arbitrarios); el blueprint ya dejó fuera de alcance el editor visual y otras piezas de configuración pesada — esto sigue esa misma lógica. El admin exporta su Excel/Wasi a este formato antes de importar.
+- Decisión: registro combinado (tenant + usuario) en un solo endpoint, con el tenant creado antes de llamar a `signUpEmail` y revertido si el sign-up falla, en vez de crear el usuario primero y parchear el `tenantId` después.
+  **Por qué:** más simple — `tenantId`/`role` son `additionalFields` de Better Auth, así que se pasan directo en el body de sign-up sin una segunda escritura a la tabla `user`.
+
+**Bloqueadores / deuda técnica abierta:**
+- El rollback de `/api/register` no es una transacción real (D1 no soporta transacciones interactivas con el adapter actual); si el `DELETE` de rollback mismo fallara, quedaría un tenant huérfano sin usuarios. Poco probable, pero no está resuelto con una garantía fuerte.
+- Sigue pendiente (de la Fase 0) montar `@cloudflare/vitest-pool-workers` para probar contra D1/Miniflare real en vez de SQLite genérico.
+- Todo lo construido hoy es backend: no hay una sola página ni componente de React nuevo. El criterio de salida de la Fase 1 ("una inmobiliaria publica 5+ propiedades por el flujo normal") todavía no se cumple de punta a punta porque no hay UI.
+
+**Próximo paso:** página pública `/[slug]` (catálogo) y `/[slug]/property/[id]` (detalle) primero — es la parte más visible del criterio de salida — y después el dashboard (lista/crear/editar propiedades y propietarios) y el onboarding.
