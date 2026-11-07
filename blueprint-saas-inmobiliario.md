@@ -1,7 +1,9 @@
 # BLUEPRINT TÉCNICO — SaaS Inmobiliario
-**Versión 1.6 — Noviembre 2026 | Stack Cloudflare (hosting + base de datos) | Para implementación con Antigravity**
+**Versión 1.7 — Noviembre 2026 | Stack Cloudflare (hosting + base de datos) | Para implementación con Antigravity**
 
 > **Estado:** `BORRADOR` → cambiar a `APROBADO` cuando esté revisado
+>
+> **Cambio de versión 1.6 → 1.7:** se audita (solo lectura) una integración Meta Tech Provider propia ya en producción (`WhatsflowAI-V2`) para resolver los dos riesgos abiertos del agente de WhatsApp. Riesgo 10 (token): se adopta un **System User Token único a nivel de app** (`META_SYSTEM_USER_TOKEN`) en vez del token por tenant del Embedded Signup — `ai_agent_configs.whatsapp_access_token_enc` deja de ser necesario. Riesgo 11 (ventana 24h/templates): el MVP solo responde a mensajes entrantes, así que no aplica tal como estaba planteado. Ver §11, §14 y §15.
 >
 > **Cambio de versión 1.1 → 1.2:** se reemplaza Supabase (Auth + Postgres + Storage + Edge Functions) y Vercel por el stack de Cloudflare completo (Workers + D1 + Cloudflare Images). Ver sección 15 para los gaps y riesgos que trae este cambio de arquitectura.
 >
@@ -1124,14 +1126,21 @@ TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
 
 ### Meta WhatsApp Cloud API — Tech Provider propio + Embedded Signup (reemplaza a Plazbot)
 - **Por qué sin intermediario:** el equipo ya tiene una app propia registrada ante Meta como Tech Provider (Business Solution Provider). Un proveedor como Plazbot existe para abstraer justamente lo que esa app ya resuelve (Business Verification, registro de números, mensajería), así que agregarlo sería una capa redundante, un costo recurrente y una dependencia externa sin beneficio para este MVP.
-- **Conexión por tenant — Embedded Signup (una sola vez por inmobiliaria):**
+- **Conexión por tenant — Embedded Signup (una sola vez por inmobiliaria), solo para identificar el número:**
   1. El admin entra a `/dashboard/ai-agent` y hace clic en "Conectar WhatsApp"
   2. Se abre el flujo de Embedded Signup de Meta (`FB.login` con `NEXT_PUBLIC_META_CONFIG_ID`): el admin autoriza y selecciona/crea su WhatsApp Business Account y número desde la propia UI de Meta
   3. El SDK devuelve un `code` en el cliente, que se envía a `POST /api/whatsapp/connect`
-  4. El Worker intercambia ese `code` por un access token (Graph API `/oauth/access_token`), obtiene `waba_id` y `phone_number_id`, suscribe ese WABA a los webhooks de la app, y guarda todo cifrado en `ai_agent_configs`
-- **Flujo de mensajes entrantes:** cliente WhatsApp → Meta → `POST` a la única URL de webhook registrada a nivel de la app (`/api/webhooks/whatsapp`), con `metadata.phone_number_id` en el payload → se resuelve el tenant por ese campo → Gemini arma la respuesta → se envía con `POST https://graph.facebook.com/v21.0/{phone_number_id}/messages` usando el access token del tenant
-- **Nota de producción (ver también §15):** el access token que devuelve el intercambio inicial de Embedded Signup suele necesitar convertirse a un token de larga duración o de usuario de sistema para no expirar; confirmar este paso contra la implementación de Tech Provider que ya existe antes de darlo por cerrado
-- **Variables:** `NEXT_PUBLIC_META_APP_ID`, `NEXT_PUBLIC_META_CONFIG_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`
+  4. El Worker intercambia ese `code` por un access token de corta duración — **ese token no se guarda ni se usa para enviar mensajes** (ver más abajo) — y lo usa solo para leer `waba_id`/`phone_number_id` y suscribir ese WABA a los webhooks de la app. Guarda `waba_id`, `phone_number_id` y `display_number` en `ai_agent_configs`
+- **Token para enviar mensajes — System User Token único a nivel de app, no uno por tenant (RESUELTO v1.7, ver §15 riesgo 10):** confirmado auditando una integración Tech Provider propia ya en producción (proyecto `WhatsflowAI-V2`) que el patrón correcto NO es guardar el token que devuelve el intercambio de Embedded Signup. Ese token por tenant no es la vía confiable para enviar mensajes a largo plazo. En su lugar:
+  1. Una sola vez, a mano, en Meta Business Manager → Usuarios del sistema → crear un usuario de sistema (rol Admin)
+  2. Asignarle como activo cada WABA que se vaya conectando (o el negocio completo, según cómo esté organizado el Business Manager)
+  3. Generar un token para ese usuario de sistema con permisos `whatsapp_business_management` + `whatsapp_business_messaging`
+  4. Ese token único se carga como el secret `META_SYSTEM_USER_TOKEN` del Worker y es el que se usa para **todas** las llamadas de envío a la Graph API, para todos los tenants — identificados igual por su `phone_number_id`, que sí es específico de cada uno
+  - **Consecuencia en el schema:** `ai_agent_configs.whatsapp_access_token_enc` deja de ser necesario (no hay token por tenant que cifrar); se elimina del schema real al implementar la Fase 4, aunque ya existía en el schema de Drizzle de las fases anteriores — ver nota de migración en §15.
+  - Asignar un WABA nuevo al usuario de sistema sigue siendo un paso manual (no hay un endpoint de Meta para automatizarlo desde el intercambio de Embedded Signup); para el MVP esto lo hace el equipo cada vez que un tenant se conecta, no el propio tenant.
+- **Flujo de mensajes entrantes:** cliente WhatsApp → Meta → `POST` a la única URL de webhook registrada a nivel de la app (`/api/webhooks/whatsapp`), con `metadata.phone_number_id` en el payload → se resuelve el tenant por ese campo → Gemini arma la respuesta → se envía con `POST https://graph.facebook.com/v21.0/{phone_number_id}/messages` usando `META_SYSTEM_USER_TOKEN`
+- **Ventana de 24h / templates — alcance reducido para el MVP (RESUELTO v1.7, ver §15 riesgo 11):** el agente del MVP solo **responde** a mensajes entrantes (nunca escribe primero), y una respuesta dentro de la misma conversación siempre cae dentro de la ventana de 24h por definición — no hace falta chequear nada para ese caso. El riesgo real (mandar un *template* aprobado fuera de la ventana) solo existiría si el producto mandara mensajes proactivos por WhatsApp (recordatorio de visita, reactivación de lead), y **eso no está en el alcance del MVP** — las notificaciones de CRM van por Resend (email), no por WhatsApp (ver blueprint §3, §11). Si de todas formas Meta rechaza un envío por estar fuera de ventana (código de error `131047`), se maneja igual que lo hace `WhatsflowAI-V2`: de forma reactiva — se captura el error y se informa, no se intenta prevenir calculando la ventana de antemano.
+- **Variables:** `NEXT_PUBLIC_META_APP_ID`, `NEXT_PUBLIC_META_CONFIG_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_SYSTEM_USER_TOKEN` (nuevo en v1.7, reemplaza el token por tenant)
 
 ```typescript
 // src/app/api/webhooks/whatsapp/route.ts
@@ -1203,11 +1212,12 @@ export async function POST(req: Request) {
   const geminiJson = await geminiRes.json()
   const reply = geminiJson.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No pude procesar tu mensaje, un asesor te contactará.'
 
-  const accessToken = await decrypt(config.whatsappAccessTokenEnc)
+  // Token de sistema único a nivel de app (ver §11 y §15 riesgo 10) — no uno
+  // por tenant guardado en ai_agent_configs.
   await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${env.META_SYSTEM_USER_TOKEN}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -1343,6 +1353,9 @@ En v1.1 esta lógica vivía en una Supabase Edge Function separada por dos razon
 ### WhatsApp Business Cloud API directa (Meta), sin proveedor intermedio
 v1.1/v1.2 usaban Plazbot para abstraer el registro ante Meta y el envío/recepción de mensajes. Se retira porque el equipo ya opera una app propia registrada como Tech Provider (Business Solution Provider) ante Meta: ese registro es justamente lo que un proveedor como Plazbot resolvería, así que mantenerlo habría sido una capa redundante, un costo recurrente y una dependencia externa de más. Cada tenant conecta su propio número con el flujo estándar de **Embedded Signup**, sin que el equipo tenga que gestionar manualmente el Business Verification de cada inmobiliaria — eso ya lo cubre el rol de Tech Provider. Trade-off: el equipo asume directamente el manejo de tokens, la suscripción a webhooks por WABA y las reglas de mensajería de Meta (ventana de 24 horas, plantillas aprobadas) que antes quedaban ocultas detrás de Plazbot (ver §15).
 
+### Token de sistema (system user) en vez de un token por tenant para enviar WhatsApp
+Se descubrió auditando (solo lectura) una integración Tech Provider propia ya en producción (`WhatsflowAI-V2`) que el token que devuelve el intercambio de Embedded Signup no es lo que sostiene el envío de mensajes ahí — usan un único System User Token a nivel de app como fallback en absolutamente todas las llamadas de envío, y en la práctica es el único camino real (el campo de token por canal queda casi siempre vacío). Se adopta el mismo patrón: un secret `META_SYSTEM_USER_TOKEN` generado una sola vez a mano en Meta Business Manager, usado para todos los tenants, identificados por su `phone_number_id`. Trade-off: cada WABA nuevo que se conecta necesita un paso manual (asignarlo como activo al usuario de sistema) que el equipo hace, no el tenant — aceptable para el volumen de un MVP, se automatiza en v2 si hace falta.
+
 ### Better Auth en lugar de Supabase Auth
 Supabase Auth desaparece junto con Supabase. Better Auth tiene adapter oficial para D1/Drizzle, corre dentro del Worker sin servicios externos adicionales, y cubre los dos requisitos de v1.1 (email/password + magic link) con plugins de primera parte. Alternativa considerada y descartada para MVP: Clerk/WorkOS (añaden costo recurrente por usuario activo que no aporta valor al MVP).
 
@@ -1391,8 +1404,8 @@ Esto es lo que v1.1 no necesitaba resolver (porque Supabase/Vercel lo resolvían
 7. **Dinero almacenado como `NUMERIC(14,2)` en v1.1 pasa a `INTEGER` (centavos) en D1**, porque SQLite no tiene un tipo decimal exacto. Esto es una mejora de corrección, pero implica que toda la capa de validación (`lib/validations/property.ts`, `lib/validations/lead.ts`) y la UI de montos deben trabajar en centavos y formatear solo en la vista — no es un cambio cosmético, hay que propagarlo.
 8. **Límite de tamaño por base D1.** Verificar el límite vigente antes de aprobar el diseño de "un único D1 compartido" como definitivo; si el crecimiento proyectado lo supera, la vía de escape (D1 por tenant) debe quedar documentada antes, no decidirse en caliente en producción.
 9. **Cloudflare Images requiere un plan que lo habilite.** Confirmar el costo y el plan necesario antes de dar esta pieza por definitiva, ya que reemplaza por completo a Supabase Storage.
-10. **Token de WhatsApp Cloud API por tenant puede expirar.** El access token que devuelve el intercambio inicial de Embedded Signup no siempre es de larga duración; antes de cerrar el MVP, confirmar con la implementación existente de la app Tech Provider si hay que convertirlo a un token de usuario de sistema (no expira) y, si no, diseñar un refresh — si no se resuelve, el agente de WhatsApp deja de responder quietamente cuando el token vence.
-11. **Ventana de 24 horas y plantillas aprobadas de Meta.** La Cloud API solo permite texto libre dentro de las 24 horas desde el último mensaje del cliente; fuera de esa ventana (por ejemplo, para que el agente retome contacto proactivamente) se requiere un *message template* pre-aprobado por Meta. Esto antes quedaba oculto detrás de Plazbot; con integración directa, el `welcome_message` y cualquier mensaje saliente fuera de la ventana de 24h deben diseñarse como templates, no como texto libre.
+10. ~~Token de WhatsApp Cloud API por tenant puede expirar.~~ **RESUELTO (v1.7):** se audita (solo lectura) una integración Tech Provider propia ya en producción (`WhatsflowAI-V2`) y se confirma que el patrón correcto es un **System User Token único a nivel de app** (`META_SYSTEM_USER_TOKEN`), generado una sola vez a mano en Meta Business Manager con permisos `whatsapp_business_management`/`whatsapp_business_messaging`, no el token que devuelve el intercambio de Embedded Signup. Ver §11 para el detalle y el paso manual pendiente (asignar cada WABA nuevo al usuario de sistema). Pendiente menor sin resolver: no hay evidencia en esa auditoría de que el token de sistema esté configurado explícitamente como "no expira" en el dashboard de Meta al generarlo — confirmar esa casilla al generarlo para este proyecto.
+11. ~~Ventana de 24 horas y plantillas aprobadas de Meta.~~ **RESUELTO para el alcance del MVP (v1.7):** el agente del MVP solo responde a mensajes entrantes (nunca escribe primero), y una respuesta en la misma conversación siempre cae dentro de la ventana de 24h — no aplica el riesgo tal como está planteado. El riesgo real (template aprobado para mensaje proactivo) solo existiría si se mandaran mensajes de WhatsApp fuera de una respuesta directa, y eso no está en el alcance del MVP (las notificaciones de CRM van por Resend, no por WhatsApp). Si Meta igual rechaza un envío por ventana (error `131047`), se maneja de forma reactiva (capturar el error e informar), igual que lo hace `WhatsflowAI-V2` — no hay que construir un chequeo de ventana por adelantado.
 12. **Una sola URL de webhook para todos los tenants.** Al ser una app Tech Provider, Meta envía todos los mensajes de todos los WABAs conectados a la misma URL; si la resolución por `phone_number_id` falla o ese índice no está bien mantenido, un mensaje puede quedar sin enrutar a ningún tenant. Vale la pena un log/alerta cuando llega un `phone_number_id` sin config asociada.
 13. **Gaps de CRM/Inventario revisados contra `houzez-crm` pero diferidos a v2 (decisión explícita, no olvido):** stages/fuentes/next_action configurables por tenant en vez de `CHECK` fijos; timeline de `activities` y `notes` múltiples por lead/deal (hoy solo hay un campo `notes` de texto); tipos de consulta "avalúo" y "crédito hipotecario" en la captura de leads; y en Inventario: `land_area` (área de lote, distinta de `area_m2`), `video_url`, `virtual_tour_url` y una tabla `floor_plans` repetible. Si el piloto real muestra que alguno de estos bloquea el uso diario, revisar antes de congelar el schema de `deals`/`properties`.
 
@@ -1418,7 +1431,7 @@ Esto es lo que v1.1 no necesitaba resolver (porque Supabase/Vercel lo resolvían
 - [x] Estructura de carpetas incluye todas las páginas y componentes mencionados
 - [x] Criterios de done específicos y verificables para este proyecto, incluyendo la prueba de aislamiento multitenant
 - [x] Decisiones técnicas justificadas con trade-offs explícitos
-- [ ] **Pendiente antes de pasar a `APROBADO`:** resolver los 13 puntos de la sección 15 (en particular riesgos 1, 3, 9 y 10, que bloquean el inicio de la implementación)
+- [ ] **Pendiente antes de pasar a `APROBADO`:** de los 13 puntos de la sección 15, quedan resueltos 1, 3, 10 y 11 (ver changelog v1.6/v1.7); sigue pendiente el 9 (plan/costo de Cloudflare Images) antes de cerrar la Fase 1 del todo, y el resto son deuda técnica menor o de v2.
 
 ---
 

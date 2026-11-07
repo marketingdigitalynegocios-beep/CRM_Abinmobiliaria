@@ -1,5 +1,5 @@
 # PLAN DE IMPLEMENTACIÓN — SaaS Inmobiliario
-**Basado en:** `blueprint-saas-inmobiliario.md` v1.5
+**Basado en:** `blueprint-saas-inmobiliario.md` v1.7
 **Estado:** `BORRADOR` → cambiar a `APROBADO` cuando esté revisado
 
 > Este documento define el **orden de trabajo** (fases, dependencias, criterios de salida) y las **reglas no negociables** del desarrollo. El progreso real, las decisiones del día a día y los bloqueos se registran en `bitacora-desarrollo.md`, no acá — este archivo es el plan, no el diario.
@@ -8,17 +8,17 @@
 
 ## 0. Antes de escribir código
 
-Hay 4 cosas del blueprint que bloquean el arranque y deben resolverse primero (son los riesgos 1, 3, 9 y 10 de la sección 15 del blueprint):
+De las 5 cosas que bloqueaban el arranque, quedan 2 abiertas (ver bitacora-desarrollo.md, entrada 2026-11-07, para el detalle de cómo se resolvieron 3 y 4):
 
 | # | Qué confirmar | Por qué bloquea | Dueño |
 |---|---|---|---|
 | 1 | ~~Compatibilidad de vinext~~ — **RESUELTO 2026-11-06:** `create-vinext-app` funciona y el build de producción corre sin errores | — | — |
+| 2 | Plan de Cloudflare que habilita Cloudflare Images y su costo | Si no se confirma, el módulo de fotos (Fase 1) no tiene dónde apoyarse en producción (en local ya funciona sin esto configurado) | — |
+| 3 | ~~Token de WhatsApp por tenant~~ — **RESUELTO 2026-11-07:** se usa un System User Token único a nivel de app (`META_SYSTEM_USER_TOKEN`), no el token por tenant del Embedded Signup. Ver blueprint §11/§14/§15 (riesgo 10) | — | — |
+| 4 | ~~Message templates para la ventana de 24h~~ — **RESUELTO 2026-11-07 para el alcance del MVP:** el agente solo responde a mensajes entrantes, siempre dentro de ventana; no hay mensajes proactivos por WhatsApp en el MVP. Ver blueprint §15 (riesgo 11) | — | — |
 | 5 | Confirmar versión de Node en la máquina/CI que vaya a correr comandos de `cf` (crear D1, secrets, deploy): `cf@1.0.0-beta.28` pide `^22.23.0 \| ^24.22.0 \| ^26.12.0`, y el entorno de prueba tenía v24.12.0 (por debajo del mínimo) | Comandos de `cf` podrían fallar o comportarse distinto si Node no cumple el rango | — |
-| 2 | Plan de Cloudflare que habilita Cloudflare Images y su costo | Si no se confirma, el módulo de fotos (Fase 1) no tiene dónde apoyarse | — |
-| 3 | Con la app Tech Provider ya existente: ¿el token de WhatsApp Cloud API por tenant es de larga duración o hay que convertirlo a token de usuario de sistema? | Si no se resuelve, el agente de WhatsApp (Fase 4) deja de responder cuando el token expira, en silencio | — |
-| 4 | Estrategia de *message templates* para la ventana de 24h de Meta | Sin esto, cualquier mensaje proactivo del agente fuera de la ventana de 24h simplemente falla | — |
 
-**Regla:** no se empieza la Fase 4 (WhatsApp) sin tener 3 y 4 resueltos y anotados en `bitacora-desarrollo.md`. Las fases 0, 1, 2 y 3 no dependen de esto y pueden avanzar en paralelo a esa confirmación.
+**La Fase 4 (WhatsApp) ya no tiene ningún bloqueador externo pendiente** — queda de última en el orden (ver §1) por decisión del usuario, no porque siga frenada. Sigue habiendo un paso manual recurrente (asignar cada WABA nuevo al usuario de sistema en Meta Business Manager cuando un tenant se conecta), documentado en el blueprint §11, no en esta sección porque no bloquea nada, es una tarea operativa de cada conexión.
 
 ---
 
@@ -68,13 +68,14 @@ Hay 4 cosas del blueprint que bloquean el arranque y deben resolverse primero (s
 
 **Criterio de salida:** un pago en sandbox de Wompi actualiza `subscriptions` end-to-end.
 
-### Fase 4 — Agente de WhatsApp (gate: ver sección 0)
-> **Reordenada (2026-11-07):** va de última antes del pulido final, no justo después del CRM. Sigue bloqueada por los riesgos 10 y 11 del blueprint (duración del token, estrategia de *message templates*) y no tiene nada más que la retenga — Billing no depende de ella ni ella de Billing.
+### Fase 4 — Agente de WhatsApp
+> **Reordenada (2026-11-07):** va de última antes del pulido final, no justo después del CRM — Billing no depende de ella ni ella de Billing. **Ya no está bloqueada** (ver §0): se resolvió el diseño del token (System User Token único, `META_SYSTEM_USER_TOKEN`) y de la ventana de 24h (el MVP solo responde, nunca escribe primero) auditando una integración Tech Provider propia ya en producción.
 
-- [ ] Botón "Conectar WhatsApp" (Embedded Signup) + `POST /api/whatsapp/connect`
+- [ ] Generar a mano el System User Token en Meta Business Manager (usuario de sistema Admin, permisos `whatsapp_business_management`/`whatsapp_business_messaging`) y cargarlo como `META_SYSTEM_USER_TOKEN`
+- [ ] Botón "Conectar WhatsApp" (Embedded Signup) + `POST /api/whatsapp/connect` — solo para obtener `waba_id`/`phone_number_id`, no para guardar un token por tenant (ver blueprint §11)
 - [ ] Webhook `GET/POST /api/webhooks/whatsapp` (verificación + firma + enrutamiento por `phone_number_id`)
 - [ ] Integración Gemini (contexto de propiedades activas + respuesta)
-- [ ] Definir y dejar aprobados ante Meta al menos los *message templates* necesarios para el `welcome_message`
+- [ ] Quitar `whatsapp_access_token_enc` del schema de `ai_agent_configs` (ya no se usa — ver blueprint §11/§15 riesgo 10) y regenerar la migración
 
 **Criterio de salida:** un mensaje real de WhatsApp a un número conectado en modo prueba recibe respuesta del agente con información de propiedades reales del tenant.
 

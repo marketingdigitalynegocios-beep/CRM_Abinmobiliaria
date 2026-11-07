@@ -329,3 +329,29 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
   **Por qué:** sigue siendo la única fase bloqueada por algo externo (riesgos 10 y 11: duración del token, estrategia de message templates — pendientes de confirmar con la app Tech Provider existente), y no tiene ninguna dependencia hacia ni desde Billing. No hay razón para dejarla a mitad de camino bloqueando nada; mejor dejarla de última para no interrumpir el impulso en las fases que sí se pueden construir de punta a punta ahora mismo.
 
 **Sin cambios de código en esta entrada** — solo reordenamiento del plan.
+
+---
+
+### 2026-11-07 — Resueltos los riesgos 10 y 11 (token y ventana 24h) auditando WhatsflowAI-V2
+
+**Quién:** sesión de planeación con Claude (con un sub-agente dedicado a auditar en solo lectura el proyecto externo)
+**Fase:** — (resolución de riesgos de la Fase 4, antes de implementarla)
+
+**Qué se hizo:**
+- El usuario señaló que el proyecto `WhatsflowAI-V2` (en `C:\Users\marke\Downloads\MVP IA-Antigravity\WhatsFlowAI-V2`) ya tiene una integración funcionando con una app Meta Tech Provider, y pidió revisarlo en modo solo lectura para resolver los riesgos 10 y 11 del blueprint.
+- Se auditó (sin modificar nada de ese proyecto) `lib/meta/client.ts`, `lib/ai/responder.ts`, `app/api/webhooks/meta-direct/route.ts`, `app/api/meta/token-exchange/route.ts`, `lib/campaigns/enviar.ts`, `lib/automations/executor.ts`, `app/api/plantillas/route.ts`, `lib/utils/whatsapp-validation.ts`, `lib/constants/default-templates.ts`, y el documento `WhatFlowAI_MetaTechProvider_Sandbox_Blueprint.md`.
+- **Hallazgo riesgo 10 (token):** el patrón real en producción no es guardar el token del intercambio de Embedded Signup — es un **System User Token único a nivel de app**, generado una sola vez a mano en Meta Business Manager (Usuarios del sistema → crear uno Admin → asignarle cada WABA como activo → generar token con `whatsapp_business_management`/`whatsapp_business_messaging`), usado como fallback en absolutamente todas las llamadas de envío (`channel.meta_access_token || process.env.META_SYSTEM_USER_TOKEN`), y en la práctica el campo por canal casi nunca se usa.
+- **Hallazgo riesgo 11 (ventana 24h):** no hay ningún chequeo preventivo de "¿pasaron 24h?". Es reactivo: capturan el código de error de Meta (`131047`) después de que el envío falla y se lo informan al usuario. Para respuestas del agente de IA a mensajes entrantes no hace falta ningún chequeo, porque responder en la misma conversación siempre cae dentro de la ventana.
+- Se actualizó el blueprint a **v1.7**: §11 ahora documenta el flujo con System User Token (Embedded Signup solo sirve para obtener `waba_id`/`phone_number_id`, ya no para guardar un token por tenant), §15 marca los riesgos 10 y 11 como resueltos (con la nota de que falta confirmar manualmente que el token de sistema se generó marcado como "no expira"), y §14 tiene la decisión nueva con su porqué. Se actualizó `plan-implementacion.md` §0 (ya no hay bloqueadores externos para la Fase 4) y la Fase 4 (agrega la tarea de generar el token a mano, quita el token por tenant del schema).
+
+**Decisiones tomadas:**
+- Decisión: adoptar el mismo patrón de System User Token único que usa `WhatsflowAI-V2`, en vez de intentar hacer funcionar el token por tenant del Embedded Signup con algún mecanismo de refresh propio.
+  **Por qué:** es un patrón ya probado en producción por una integración Tech Provider real con la misma app/cuenta de Meta que vamos a usar nosotros — más confiable que diseñar algo nuevo sin poder probarlo contra una cuenta real todavía.
+- Decisión: no construir ningún chequeo de ventana de 24h para el MVP.
+  **Por qué:** el agente del MVP solo responde, nunca escribe primero (no hay mensajes proactivos de WhatsApp en el alcance — las notificaciones de CRM van por Resend). Construir ese chequeo ahora sería resolver un problema que el MVP no tiene.
+
+**Bloqueadores abiertos:**
+- Confirmar al generar el `META_SYSTEM_USER_TOKEN` real que quede marcado explícitamente como "no expira" en el dashboard de Meta — no se encontró evidencia en la auditoría de que `WhatsflowAI-V2` lo haya hecho así (podría estar rotándolo a mano, no quedó claro).
+- Sigue pendiente el paso manual recurrente: cada WABA nuevo que se conecte necesita asignarse a mano al usuario de sistema en Business Manager — no es un bloqueador, es una tarea operativa de cada conexión (documentada en el blueprint §11).
+
+**Próximo paso:** la Fase 4 ya no tiene nada externo pendiente para arrancar cuando le toque el turno (sigue de última en el orden, por decisión del usuario). Seguir con la Fase 3 (Billing) o con el aprovisionamiento real de Cloudflare / la pasada manual en el navegador, según lo que decida el usuario.
