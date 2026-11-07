@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@variant dark (&:where(.dark, .dark *));
+
 /*
  * Paleta del blueprint (blueprint-saas-inmobiliario.md §12), en sintaxis de
  * Tailwind v4 (`@theme`, no `tailwind.config.ts` — el scaffold de vinext usa
@@ -30,8 +32,177 @@
 
 body {
   margin: 0;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-a {
-  color: inherit;
+@layer base {
+  a {
+    color: inherit;
+  }
+}
+
+.dashboard-content {
+  transition: margin-left 0.15s ease;
+}
+
+@media (min-width: 768px) {
+  html[data-sidebar="collapsed"] .dashboard-content {
+    margin-left: 72px;
+  }
+}
+
+/* Material Symbols icon styling */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  vertical-align: middle;
+}
+
+/* ========================================================================= */
+/* DARK THEME SYSTEM & HIGH-PRECISION PROPTECH DARK STYLES                  */
+/* ========================================================================= */
+
+html.dark {
+  color-scheme: dark;
+  background-color: #0b1120;
+  color: #f1f5f9;
+}
+
+html.dark body {
+  background-color: #0b1120;
+  color: #f1f5f9;
+}
+
+/* Containers and Surfaces */
+html.dark .bg-white {
+  background-color: #0f172a;
+}
+
+html.dark .bg-white\/95 {
+  background-color: rgba(15, 23, 42, 0.95);
+}
+
+html.dark .bg-white\/80 {
+  background-color: rgba(15, 23, 42, 0.85);
+}
+
+html.dark .bg-light-gray {
+  background-color: #1e293b;
+}
+
+html.dark .bg-light-gray\/50 {
+  background-color: rgba(30, 41, 59, 0.5);
+}
+
+html.dark .bg-slate-50 {
+  background-color: #172033;
+}
+
+html.dark .bg-slate-50\/70,
+html.dark .bg-slate-50\/60 {
+  background-color: rgba(23, 32, 51, 0.7);
+}
+
+html.dark .bg-slate-100 {
+  background-color: #1e293b;
+}
+
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-50\/70:hover {
+  background-color: #1e293b;
+}
+
+html.dark .hover\:bg-light-gray:hover {
+  background-color: #1e293b;
+}
+
+/* Borders */
+html.dark .border-border,
+html.dark .border-slate-200,
+html.dark .border-slate-300 {
+  border-color: #1e293b;
+}
+
+html.dark .divide-border > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1e293b;
+}
+
+/* Typography */
+html.dark .text-dark {
+  color: #f8fafc;
+}
+
+html.dark .text-slate-800,
+html.dark .text-slate-700 {
+  color: #e2e8f0;
+}
+
+html.dark .text-gray,
+html.dark .text-slate-600,
+html.dark .text-slate-500 {
+  color: #94a3b8;
+}
+
+/* Form inputs & controls in dark mode */
+html.dark input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+html.dark textarea,
+html.dark select {
+  background-color: #131d31;
+  color: #f8fafc;
+  border-color: #27354f;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b;
+}
+
+html.dark input:focus,
+html.dark textarea:focus,
+html.dark select:focus {
+  border-color: #3b82f6;
+  background-color: #152238;
+}
+
+/* Cards & Pills */
+html.dark .bg-blue-50 {
+  background-color: rgba(30, 58, 138, 0.25);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+html.dark .bg-emerald-50 {
+  background-color: rgba(6, 78, 59, 0.25);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+html.dark .bg-sky-50,
+html.dark .bg-sky-50\/60 {
+  background-color: rgba(12, 74, 110, 0.25);
+  border-color: rgba(14, 165, 233, 0.3);
+}
+
+html.dark .bg-amber-50 {
+  background-color: rgba(120, 53, 15, 0.25);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+html.dark .bg-purple-50 {
+  background-color: rgba(88, 28, 135, 0.25);
+  border-color: rgba(168, 85, 247, 0.3);
+}
+
+html.dark .bg-red-50 {
+  background-color: rgba(127, 29, 29, 0.25);
+  border-color: rgba(239, 68, 68, 0.3);
 }

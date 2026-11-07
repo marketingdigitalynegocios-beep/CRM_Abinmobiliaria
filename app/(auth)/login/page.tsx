@@ -20,6 +20,7 @@ const errorClass = "mt-1 text-xs text-danger";
 export default function LoginPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [sendingMagicLink, setSendingMagicLink] = useState(false);
 
@@ -85,7 +86,25 @@ export default function LoginPage() {
           <label className={labelClass} htmlFor="password">
             Contraseña
           </label>
-          <input className={inputClass} id="password" type="password" {...register("password")} />
+          <div className="relative">
+            <input
+              className={`${inputClass} pr-10`}
+              id="password"
+              type={showPassword ? "text" : "password"}
+              {...register("password")}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray hover:text-dark transition-colors focus:outline-none"
+              tabIndex={-1}
+              title={showPassword ? "Ocultar contraseña" : "Ver contraseña"}
+            >
+              <span className="material-symbols-outlined text-[20px]">
+                {showPassword ? "visibility_off" : "visibility"}
+              </span>
+            </button>
+          </div>
           {errors.password && <p className={errorClass}>{errors.password.message}</p>}
         </div>
 

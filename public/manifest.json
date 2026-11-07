@@ -1,0 +1,12 @@
+{
+  "name": "SaaS Inmobiliario",
+  "short_name": "Inmobiliario",
+  "description": "CRM inmobiliario: inventario, leads, agente de WhatsApp y reportes.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#1B4FBF",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

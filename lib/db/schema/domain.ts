@@ -19,6 +19,11 @@ export const tenants = sqliteTable("tenants", {
     .default("modern"),
   whatsappNumber: text("whatsapp_number"),
   description: text("description"),
+  // Token opaco para el feed XML de portales externos (Fase 12, ver
+  // plan-implementacion.md §1-bis) — el feed es público (lo consume el
+  // crawler del portal, sin sesión), así que se protege por token impredecible
+  // en la URL en vez de autenticación.
+  portalFeedToken: text("portal_feed_token").unique(),
   ...timestamps,
 }, (t) => [check("tenants_template_check", sql`${t.template} IN ('modern', 'classic', 'minimal')`)]);
 
@@ -133,6 +138,15 @@ export const leads = sqliteTable(
     notes: text("notes"),
     budgetMinCents: integer("budget_min_cents"),
     budgetMaxCents: integer("budget_max_cents"),
+    // Preferencias estructuradas para el matching automático (Fase 11, ver
+    // plan-implementacion.md §1-bis) — se decidió pedirlas explícitas en vez
+    // de extraerlas con IA de `notes`: son 3 campos opcionales que el asesor
+    // ya conoce al calificar el lead, sin costo ni latencia de un modelo.
+    preferredCity: text("preferred_city"),
+    preferredType: text("preferred_type", {
+      enum: ["apartment", "house", "commercial", "land"],
+    }),
+    preferredOperation: text("preferred_operation", { enum: ["sale", "rent", "sale_rent"] }),
     ...timestamps,
   },
   (t) => [
@@ -140,6 +154,14 @@ export const leads = sqliteTable(
     index("idx_leads_stage").on(t.stage),
     check("leads_source_check", sql`${t.source} IN ('website', 'whatsapp', 'referral', 'manual')`),
     check("leads_stage_check", sql`${t.stage} IN ('new', 'contacted', 'disqualified')`),
+    check(
+      "leads_preferred_type_check",
+      sql`${t.preferredType} IS NULL OR ${t.preferredType} IN ('apartment', 'house', 'commercial', 'land')`
+    ),
+    check(
+      "leads_preferred_operation_check",
+      sql`${t.preferredOperation} IS NULL OR ${t.preferredOperation} IN ('sale', 'rent', 'sale_rent')`
+    ),
   ]
 );
 
@@ -259,6 +281,209 @@ export const aiAgentConfigs = sqliteTable(
     ...timestamps,
   },
   (t) => [index("idx_ai_agent_phone_number").on(t.whatsappPhoneNumberId)]
+);
+
+// Historial real de conversaciones de WhatsApp (Fase 6, ver plan-implementacion.md
+// §1-bis) — sin esto no hay forma de auditar qué dijo el agente ni de medir
+// volumen/tiempo de respuesta reales. `leadId` es nullable porque un mensaje
+// entrante puede llegar de un número que todavía no tiene lead creado.
+export const whatsappMessages = sqliteTable(
+  "whatsapp_messages",
+  {
+    id: idColumn(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    leadId: text("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    phoneNumberId: text("phone_number_id").notNull(),
+    direction: text("direction", { enum: ["inbound", "outbound"] }).notNull(),
+    body: text("body").notNull(),
+    waMessageId: text("wa_message_id"),
+    status: text("status", { enum: ["received", "sent", "failed"] })
+      .notNull()
+      .default("received"),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_whatsapp_messages_tenant").on(t.tenantId),
+    index("idx_whatsapp_messages_lead").on(t.leadId),
+    check("whatsapp_messages_direction_check", sql`${t.direction} IN ('inbound', 'outbound')`),
+    check("whatsapp_messages_status_check", sql`${t.status} IN ('received', 'sent', 'failed')`),
+  ]
+);
+
+// Timeline de interacciones de un lead (Fase 6) — una fila por cada evento real
+// (cambio de etapa, nota, llamada, deal abierto, visita agendada, mensaje de
+// WhatsApp). Se escribe desde las mismas funciones de tenant-scope.ts que ya
+// mutan el estado, nunca desde el cliente directamente.
+export const leadActivities = sqliteTable(
+  "lead_activities",
+  {
+    id: idColumn(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    leadId: text("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    type: text("type", {
+      enum: ["stage_change", "note", "call", "deal_created", "visit_scheduled", "whatsapp_message"],
+    }).notNull(),
+    body: text("body").notNull(),
+    actorId: text("actor_id").references(() => user.id),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_lead_activities_tenant").on(t.tenantId),
+    index("idx_lead_activities_lead").on(t.leadId),
+    check(
+      "lead_activities_type_check",
+      sql`${t.type} IN ('stage_change', 'note', 'call', 'deal_created', 'visit_scheduled', 'whatsapp_message')`
+    ),
+  ]
+);
+
+// Seguimiento/recordatorios (Fase 7, ver plan-implementacion.md §1-bis). Una
+// tarea puede colgar de un lead, de un deal, de ambos, o de ninguno (recordatorio
+// suelto) — por eso `leadId`/`dealId` son nullable.
+export const tasks = sqliteTable(
+  "tasks",
+  {
+    id: idColumn(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    leadId: text("lead_id").references(() => leads.id, { onDelete: "cascade" }),
+    dealId: text("deal_id").references(() => deals.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    dueAt: text("due_at"),
+    status: text("status", { enum: ["pending", "done"] }).notNull().default("pending"),
+    assigneeId: text("assignee_id").references(() => user.id),
+    ...timestamps,
+  },
+  (t) => [
+    index("idx_tasks_tenant").on(t.tenantId),
+    index("idx_tasks_due").on(t.dueAt),
+    index("idx_tasks_status").on(t.status),
+    check("tasks_status_check", sql`${t.status} IN ('pending', 'done')`),
+  ]
+);
+
+// Notificaciones in-app (Fase 7) — una fila por usuario, no por tenant, porque
+// cada miembro del equipo marca sus propias como leídas de forma independiente.
+export const notifications = sqliteTable(
+  "notifications",
+  {
+    id: idColumn(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    type: text("type", { enum: ["new_lead", "visit_scheduled", "task_due"] }).notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    link: text("link"),
+    read: integer("read", { mode: "boolean" }).notNull().default(false),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_notifications_tenant_user").on(t.tenantId, t.userId),
+    index("idx_notifications_user_read").on(t.userId, t.read),
+    check(
+      "notifications_type_check",
+      sql`${t.type} IN ('new_lead', 'visit_scheduled', 'task_due')`
+    ),
+  ]
+);
+
+// Documentos y contratos (Fase 9, ver plan-implementacion.md §1-bis). El
+// archivo en sí vive en R2 (`env.DOCUMENTS`, ver cloudflare.config.ts) — acá
+// solo se guarda la referencia (`storageKey`) y a qué registro pertenece.
+// Nunca se expone una URL pública directa del bucket: se sirve streameado
+// desde `GET /api/documents/[id]/download`, que valida el tenant primero.
+export const documents = sqliteTable(
+  "documents",
+  {
+    id: idColumn(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    leadId: text("lead_id").references(() => leads.id, { onDelete: "cascade" }),
+    dealId: text("deal_id").references(() => deals.id, { onDelete: "cascade" }),
+    propertyId: text("property_id").references(() => properties.id, { onDelete: "cascade" }),
+    type: text("type", { enum: ["contract", "mandate", "id_copy", "other"] })
+      .notNull()
+      .default("other"),
+    fileName: text("file_name").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storageKey: text("storage_key").notNull(),
+    uploadedBy: text("uploaded_by").references(() => user.id),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_documents_tenant").on(t.tenantId),
+    index("idx_documents_lead").on(t.leadId),
+    index("idx_documents_deal").on(t.dealId),
+    index("idx_documents_property").on(t.propertyId),
+    check("documents_type_check", sql`${t.type} IN ('contract', 'mandate', 'id_copy', 'other')`),
+  ]
+);
+
+// Sincronización con Google Calendar (Fase 10, ver plan-implementacion.md
+// §1-bis) — una conexión OAuth2 por asesor (`userId` único), no por tenant,
+// porque cada asesor usa su propio calendario de Google.
+export const googleCalendarConnections = sqliteTable("google_calendar_connections", {
+  id: idColumn(),
+  tenantId: text("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => user.id, { onDelete: "cascade" }),
+  accessTokenEnc: text("access_token_enc").notNull(),
+  refreshTokenEnc: text("refresh_token_enc").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  calendarId: text("calendar_id").notNull().default("primary"),
+  ...timestamps,
+});
+
+// Reseñas y testimonios (Fase 13, ver plan-implementacion.md §1-bis). Se
+// cargan desde el dashboard (el asesor registra lo que el cliente le
+// compartió, ej. por WhatsApp) y quedan sin publicar hasta que un admin las
+// revisa — no hay formulario público de reseñas en este MVP.
+export const propertyReviews = sqliteTable(
+  "property_reviews",
+  {
+    id: idColumn(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    propertyId: text("property_id").references(() => properties.id, { onDelete: "cascade" }),
+    authorName: text("author_name").notNull(),
+    rating: integer("rating").notNull(),
+    comment: text("comment").notNull(),
+    isPublished: integer("is_published", { mode: "boolean" }).notNull().default(false),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_property_reviews_tenant").on(t.tenantId),
+    index("idx_property_reviews_property").on(t.propertyId),
+    check("property_reviews_rating_check", sql`${t.rating} BETWEEN 1 AND 5`),
+  ]
 );
 
 export const subscriptions = sqliteTable(

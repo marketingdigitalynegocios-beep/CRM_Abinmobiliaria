@@ -30,6 +30,7 @@ export const createPropertySchema = z.object({
   description: z.string().max(5000).optional(),
   amenities: z.array(z.string()).default([]),
   coverImageId: z.string().optional(),
+  images: z.array(z.string()).optional(),
   isFeatured: z.boolean().default(false),
   advisorId: z.string().optional(),
 

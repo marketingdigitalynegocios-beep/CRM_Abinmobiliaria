@@ -3,7 +3,7 @@ import { forbidden, requireSession, unauthorized } from "@/lib/auth/session";
 import { generateAgentReply } from "@/lib/ai/agent";
 import { decrypt } from "@/lib/crypto";
 import { getDb } from "@/lib/db/client";
-import { getAiAgentConfigForTenant } from "@/lib/db/tenant-scope";
+import { getAiAgentConfigForTenant, recordWhatsappMessage } from "@/lib/db/tenant-scope";
 import { jsonError, validationError } from "@/lib/http";
 import { testAiAgentSchema } from "@/lib/validations/whatsapp";
 
@@ -27,8 +27,20 @@ export async function POST(request: Request) {
     return jsonError("Configura tu Gemini key antes de probar el agente", 400);
   }
 
+  // Sin número de WhatsApp conectado todavía, el simulador usa un
+  // `phoneNumberId` fijo para que sus mensajes igual queden en el historial
+  // (la columna es NOT NULL, ver lib/db/schema/domain.ts).
+  const phoneNumberId = config.whatsappPhoneNumberId ?? "simulador";
+
   try {
     const geminiKey = await decrypt(config.geminiKeyEnc, env.ENCRYPTION_KEY);
+    await recordWhatsappMessage(db, session.tenantId, {
+      phoneNumberId,
+      direction: "inbound",
+      body: parsed.data.message,
+      status: "received",
+    });
+
     const reply = await generateAgentReply(
       db,
       session.tenantId,
@@ -36,6 +48,14 @@ export async function POST(request: Request) {
       parsed.data.message,
       geminiKey
     );
+
+    await recordWhatsappMessage(db, session.tenantId, {
+      phoneNumberId,
+      direction: "outbound",
+      body: reply,
+      status: "sent",
+    });
+
     return Response.json({ reply });
   } catch (error) {
     return jsonError("No se pudo generar la respuesta", 502, String(error));

@@ -33,18 +33,74 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const property = await getPublishedPropertyForTenant(db, tenant.id, id);
   if (!property) return {};
 
-  const imageUrl = buildImageUrl(property.coverImageId, "public");
+  let imageUrl = buildImageUrl(property.coverImageId, "public");
+  if (!imageUrl) {
+    const images = await listPropertyImages(db, property.id);
+    if (images.length > 0) {
+      imageUrl = buildImageUrl(images[0].imageId, "public") || images[0].imageId;
+    }
+  }
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const absoluteImageUrl = imageUrl
+    ? imageUrl.startsWith("http://") || imageUrl.startsWith("https://")
+      ? imageUrl
+      : `${baseUrl}${imageUrl.startsWith("/") ? "" : "/"}${imageUrl}`
+    : undefined;
+
+  const formattedPrice = `$${(property.priceCents / 100).toLocaleString("es-CO")} ${property.currency || "COP"}`;
+  const operationText = property.operation === "sale" ? "Venta" : "Arriendo";
+  const typeText = typeLabels[property.type] ?? property.type;
+  const locationText = [property.neighborhood, property.city].filter(Boolean).join(", ");
+  const featuresText = [
+    `${typeText} en ${operationText}`,
+    formattedPrice,
+    locationText || null,
+    property.areaM2 ? `${property.areaM2} m²` : null,
+    property.bedrooms ? `${property.bedrooms} hab` : null,
+    property.bathrooms ? `${property.bathrooms} baños` : null,
+  ].filter(Boolean).join(" · ");
+
+  const metaDescription = property.description
+    ? `${featuresText}. ${property.description.slice(0, 160)}`
+    : featuresText;
+
+  const pageUrl = `${baseUrl}/${slug}/property/${property.id}`;
+  const metaTitle = `${property.title} · ${formattedPrice}`;
 
   return {
-    // `absolute`: mismo motivo que en app/[slug]/page.tsx — no heredar el
-    // template de título del dashboard en el sitio público del tenant.
-    title: { absolute: `${property.title} — ${tenant.name}` },
-    description: property.description ?? undefined,
+    title: { absolute: `${metaTitle} — ${tenant.name}` },
+    description: metaDescription,
+    alternates: {
+      canonical: pageUrl,
+    },
     openGraph: {
-      title: property.title,
-      description: property.description ?? undefined,
-      type: "website",
-      images: imageUrl ? [imageUrl] : undefined,
+      title: metaTitle,
+      description: metaDescription,
+      url: pageUrl,
+      siteName: tenant.name,
+      locale: "es_CO",
+      type: "article",
+      images: absoluteImageUrl
+        ? [
+            {
+              url: absoluteImageUrl,
+              width: 1200,
+              height: 630,
+              alt: property.title,
+            },
+          ]
+        : undefined,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: metaTitle,
+      description: metaDescription,
+      images: absoluteImageUrl ? [absoluteImageUrl] : undefined,
+    },
+    other: {
+      "og:price:amount": String(property.priceCents / 100),
+      "og:price:currency": property.currency || "COP",
     },
   };
 }

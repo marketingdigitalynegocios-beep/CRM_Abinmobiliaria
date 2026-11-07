@@ -103,6 +103,105 @@ De las 5 cosas que bloqueaban el arranque, quedan 2 abiertas (ver bitacora-desar
 
 ---
 
+## 1-bis. Fases 6-13 — Cierre de brechas de CRM inmobiliario (2026-11-07)
+
+> **Contexto:** tras el rediseño visual y la auditoría de "relleno" (ver bitacora-desarrollo.md, entrada 2026-11-07), el usuario pidió investigar qué funcionalidad típica de un CRM inmobiliario le falta a este MVP y armar el plan para construirla toda. Estas 8 fases cubren los 13 puntos identificados. **Todo se construye y se verifica sobre la cuenta demo existente** (no se crea un tenant nuevo) — "funcional al 100%" significa conectado a datos reales, con el mismo rigor de verificación en vivo usado en las fases 0-4 (type-check + tests + `curl`/navegador contra el servidor real, nunca solo "debería funcionar").
+>
+> Orden pensado por dependencias de datos, no por importancia de negocio — una fase posterior puede adelantarse si el usuario lo pide explícitamente (regla 6 de la sección 2).
+
+### Fase 6 — Trazabilidad: historial de WhatsApp + timeline de leads
+> Cubre los puntos **#1** (historial de conversaciones de WhatsApp) y **#10** (historial de interacciones por lead) del análisis de brechas. Es la base de la que dependen Fase 7 (notificaciones) y Fase 8 (reportes), por eso va primero.
+
+- [x] Tabla nueva `whatsapp_messages` (`id`, `tenantId`, `leadId` nullable, `phoneNumberId`, `direction` enum[`inbound`,`outbound`], `body`, `waMessageId`, `status`, `createdAt`) + migración Drizzle (2026-11-07)
+- [x] Tabla nueva `lead_activities` (`id`, `tenantId`, `leadId`, `type` enum[`stage_change`,`note`,`call`,`deal_created`,`visit_scheduled`,`whatsapp_message`], `body`, `actorId` nullable, `createdAt`) + migración (2026-11-07)
+- [x] `app/api/webhooks/whatsapp/route.ts` registra cada mensaje entrante y cada respuesta del agente en `whatsapp_messages` (2026-11-07)
+- [x] Las funciones de `tenant-scope.ts` que cambian estado (`updateLeadForTenant`, `createDealForTenant`, `createVisitForTenant`) insertan también una fila en `lead_activities` (2026-11-07)
+- [x] UI: secciones "Conversación de WhatsApp" + "Historial" en `crm/[leadId]/page.tsx` (2026-11-07) — el resto del estilo visual de esa página sigue sin migrar al nuevo diseño, queda fuera de esta fase
+- [x] 10 tests de aislamiento multitenant y comportamiento en `tests/trazabilidad.test.ts` (2026-11-07)
+
+**Criterio de salida: CUMPLIDO Y VERIFICADO EN VIVO (2026-11-07).** Sobre la cuenta demo real: se cambió la etapa de un lead por `PATCH /api/leads/[id]` y quedó en su timeline; se firmó con HMAC-SHA256 un payload de webhook simulando un mensaje entrante del teléfono de un lead sembrado y se confirmó (por SQL directo y por `curl` a `/dashboard/crm/[leadId]`) que el mensaje y la actividad aparecen correctamente, emparejados por teléfono. Ver bitacora-desarrollo.md, entrada 2026-11-07, para el detalle completo y las decisiones tomadas.
+
+### Fase 7 — Tareas y notificaciones
+> Cubre **#2** (seguimiento/recordatorios) y **#3** (notificaciones). Depende de Fase 6 solo para poder generar notificaciones a partir de actividad real (lead nuevo, mensaje entrante) y no de eventos inventados.
+
+- [x] Tabla nueva `tasks` (`id`, `tenantId`, `leadId` nullable, `dealId` nullable, `title`, `dueAt`, `status` enum[`pending`,`done`], `assigneeId`) + migración (2026-11-07)
+- [x] `app/api/tasks/route.ts` + `[id]/route.ts` (CRUD, con tests de aislamiento multitenant) (2026-11-07)
+- [x] Widget de tareas pendientes (`TaskList.tsx`) en el Resumen y en la ficha del lead (2026-11-07)
+- [x] Tabla nueva `notifications` (`id`, `tenantId`, `userId`, `type`, `title`, `body`, `link`, `read` boolean, `createdAt`) + migración (2026-11-07)
+- [x] Campanita de notificaciones (`NotificationBell.tsx`) en `TopBar.tsx`, con conteo de no leídas (2026-11-07)
+- [x] Disparadores síncronos: lead nuevo desde el formulario público (no en alta manual), visita agendada (al asesor asignado o a todo el equipo) (2026-11-07)
+- [x] "Tarea vencida": `app/api/cron/check-tasks/route.ts`, admin-only, invocación manual — **no es un Cloudflare Cron Trigger real todavía**, queda como bloqueador documentado en la bitácora (requiere investigar cómo convive con el entrypoint que ya controla vinext) (2026-11-07)
+- [ ] Email de notificación por Resend: **sigue atado a la `RESEND_API_KEY` real, diferida junto con Billing** — no se implementó en esta fase, se hereda la misma decisión de la Fase 3
+
+**Criterio de salida: CUMPLIDO Y VERIFICADO EN VIVO (2026-11-07).** Sobre la cuenta demo real: crear un lead público generó su notificación automáticamente con el link correcto; se creó una tarea vencida, se corrió el handler de cron manualmente y generó una notificación por cada miembro del equipo, sin duplicarla en una segunda corrida; marcar una notificación como leída bajó el contador de no leídas. Ver bitacora-desarrollo.md, entrada 2026-11-07, para el detalle completo.
+
+### Fase 8 — Comisiones y reportes
+> Cubre **#5** (cálculo de comisiones) y **#7** (reportes/analítica real). `properties.commission_percentage` **ya existe en el schema y ya se captura en `PropertyForm`** desde antes de esta auditoría — nadie lo consume todavía. `deals.advisor_id` también ya existe. Esta fase es mayormente de lectura/agregación, no de schema nuevo.
+
+- [x] `lib/db/tenant-scope.ts`: `getCommissionsReportForTenant`, `getConversionBySourceForTenant`, `getAverageClosingDaysForTenant`, `getAdvisorRankingForTenant` (2026-11-07)
+- [x] Página `/dashboard/reports` con export a CSV client-side (2026-11-07)
+- [x] Deals sin `advisorId` se agrupan como "Sin asesor asignado" (2026-11-07)
+- [x] 6 tests de aislamiento multitenant y cálculo en `tests/reports.test.ts` (2026-11-07)
+
+**Criterio de salida: CUMPLIDO Y VERIFICADO EN VIVO (2026-11-07).** El deal `closed_won` sembrado (apartamento Sabaneta, 8% de comisión) aparece con `$2.560 COP` de comisión calculada correctamente, bajo "Sin asesor asignado". Ver bitacora-desarrollo.md, entrada 2026-11-07.
+
+### Fase 9 — Documentos, contratos y firma electrónica
+> Cubre **#4** (documentos y contratos) y **#9** (firma electrónica / export listo para firmar).
+
+- [x] Tabla nueva `documents` (`leadId`/`dealId`/`propertyId` opcionales, `type`, `fileName`, `contentType`, `sizeBytes`, `storageKey`) + migración (2026-11-07)
+- [x] `POST/GET /api/documents`, `DELETE /api/documents/[id]`, `GET /api/documents/[id]/download` — **binding `DOCUMENTS: bindings.r2(...)` en R2 real**, descubierto que `cf/config` lo soporta de forma nativa (2026-11-07)
+- [x] Ficha de propiedad imprimible (`/dashboard/properties/[id]/sheet`) y borrador de contrato (`/dashboard/crm/[leadId]/contract/[dealId]`), ambos vía HTML + `window.print()` en vez de una librería de PDF server-side — **decisión técnica documentada**: evita dependencias Node-only incompatibles con Workers (2026-11-07)
+- [x] Firma electrónica real queda fuera de esta fase, tal como estaba previsto
+- [x] 6 tests de aislamiento multitenant en `tests/documents.test.ts` (2026-11-07)
+
+**Criterio de salida: CUMPLIDO Y VERIFICADO EN VIVO (2026-11-07).** Se subió un archivo real por `multipart/form-data` a R2 (vía la simulación local de Miniflare), se descargó de vuelta con el contenido idéntico, y se borró (fila + objeto). Se generó la ficha PDF de una propiedad real y el borrador de contrato del deal `closed_won` real de la demo, ambos con datos reales. Ver bitacora-desarrollo.md, entrada 2026-11-07 — incluye un hallazgo útil (`triggers.scheduled`) para el bloqueador abierto de la Fase 7.
+
+### Fase 10 — Calendario
+> Cubre **#8**. Hoy `visits` ya es real (Fase 2) — falta la vista de calendario y la sincronización externa.
+
+- [x] Vista mensual/semanal sobre `visits` existentes (`CalendarView.tsx`, con `date-fns`) en `/dashboard/calendar` (2026-11-07)
+- [x] Sincronización con Google Calendar por asesor (OAuth2 + Google Calendar API real) — tabla `google_calendar_connections`, flujo completo de conexión/callback/desconexión, sincronización de salida al crear una visita (2026-11-07)
+- [x] 5 tests de aislamiento multitenant y construcción de la URL de auth (2026-11-07)
+
+**Criterio de salida: CUMPLIDO Y VERIFICADO EN VIVO (2026-11-07).** Las 3 visitas reales de la demo aparecen en el calendario; el flujo OAuth2 redirige de verdad a Google y, al simular el callback, la API real de Google respondió con un rechazo real de credenciales (401, "The OAuth client was not found") — confirmando que la integración llega de verdad a Google, igual que Meta/Gemini en la Fase 4. Ver bitacora-desarrollo.md, entrada 2026-11-07.
+
+### Fase 11 — Matching inteligente lead↔propiedad
+> Cubre **#11**.
+
+- [x] Decisión tomada: 3 campos estructurados nuevos en `leads` (`preferredCity`, `preferredType`, `preferredOperation`) en vez de extracción por IA de `notes` (2026-11-07)
+- [x] `lib/db/tenant-scope.ts`: `getMatchingPropertiesForLead` (2026-11-07)
+- [x] UI: sección "Propiedades sugeridas" en la ficha del lead, con botón "Abrir oportunidad" (`QuickDealButton.tsx`) (2026-11-07)
+- [x] 6 tests en `tests/matching.test.ts` (2026-11-07)
+
+**Criterio de salida: CUMPLIDO Y VERIFICADO EN VIVO (2026-11-07).** Un lead real de la demo (Sandra, cuyas notas en texto libre ya decían "busca lote en Rionegro") recibió las preferencias estructuradas correspondientes y el matching sugirió correctamente "Lote urbanizable en Rionegro" del inventario real. Ver bitacora-desarrollo.md, entrada 2026-11-07 — incluye un bug real de una migración de drizzle-kit, encontrado y corregido antes de aplicarla.
+
+### Fase 12 — Portales externos (Fincaraíz, Metrocuadrado, Properati)
+> Cubre **#6**.
+
+- [x] Investigado (vía WebSearch, 2026-11-07): Fincaraíz y Metrocuadrado tienen API real de integrador (API key / usuario-contraseña), credenciales a solicitar directamente con cada portal — ninguna es self-service. Metrocuadrado es asíncrona (`transactionId`). Properati no tiene canal de integración conocido públicamente.
+- [x] Feed XML real (`GET /api/portals/feed/[token]`, público, token impredecible) a partir de `properties` `active`+`published` del tenant, con fotos reales, precio, ubicación y link a la ficha pública (2026-11-07)
+- [ ] Cliente específico de la API de integrador de Fincaraíz/Metrocuadrado — **bloqueado por credenciales reales**, queda para cuando el usuario las obtenga
+- [x] 5 tests de aislamiento multitenant y comportamiento del token en `tests/portal-feed.test.ts` (2026-11-07)
+
+**Criterio de salida: CUMPLIDO PARCIALMENTE Y VERIFICADO EN VIVO (2026-11-07) — ajustado tras la investigación.** No fue posible verificar contra la API real de ningún portal (a diferencia de Meta/Gemini/Google, ninguno de los tres tiene un endpoint público donde un rechazo de credenciales inválidas pruebe que la integración llega) — construir contra endpoints no verificables habría significado adivinar formatos, algo que este proyecto evita explícitamente. En su lugar se entregó y verificó en vivo la pieza que sí es honesta sin esas credenciales: el feed XML real del inventario de la demo, accesible públicamente por su token y con las propiedades/datos reales correctos. Ver bitacora-desarrollo.md, entrada 2026-11-07, para el detalle de la investigación y la decisión de alcance.
+
+### Fase 13 — Pulido final: PWA móvil + reseñas y testimonios
+> Cubre **#12** (app móvil/PWA) y **#13** (reseñas/testimonios).
+
+- [x] Manifest + service worker mínimo (hecho a mano, sin `vite-plugin-pwa`) — solo cachea assets estáticos, nunca datos de la API ni páginas del dashboard (2026-11-07)
+- [x] Spot-check de responsive (no una auditoría Lighthouse real — navegador no disponible en esta sesión, ver bitácora) (2026-11-07)
+- [x] Tabla nueva `property_reviews` + migración, moderación (`isPublished`) desde `/dashboard/reviews` (2026-11-07)
+- [x] Sección de reseñas publicadas en `/[slug]` (2026-11-07)
+- [x] 6 tests de aislamiento multitenant en `tests/reviews.test.ts` (2026-11-07)
+
+**Criterio de salida: CUMPLIDO PARCIALMENTE Y VERIFICADO EN VIVO (2026-11-07).** Se registró una reseña real desde el dashboard de la demo, se publicó, y apareció en la página pública real (`http://localhost:3000/inmobiliaria-demo`, pedida sin cookie de sesión) con su texto y autor correctos. `manifest.json`/`sw.js`/`icon.svg` se sirven correctamente y el service worker queda registrado en el HTML. **No se pudo correr un audit de Lighthouse real** (el navegador de esta sesión estuvo desconectado) — queda pendiente de una sesión con navegador disponible. Ver bitacora-desarrollo.md, entrada 2026-11-07, para el detalle completo y las limitaciones honestamente documentadas (ícono solo en SVG, sin set de PNG).
+
+---
+
+> **Las Fases 6-13 quedan completas (2026-11-07)**, cerrando los 13 puntos del análisis de brechas de CRM inmobiliario. Ver bitacora-desarrollo.md para el detalle de cada una, incluyendo los bloqueadores externos que siguen pendientes (credenciales reales de Meta/Gemini/Google Cloud/Fincaraíz/Metrocuadrado) y las dos tareas de diseño/infraestructura que no son código (íconos PNG para PWA, auditoría Lighthouse con navegador real).
+
+---
+
 ## 2. Reglas no negociables
 
 1. **Aislamiento multitenant primero, siempre.** Ninguna query a `properties`, `property_owners`, `leads`, `deals`, `visits`, `lead_property_interests`, `ai_agent_configs` o `subscriptions` se escribe sin pasar por `lib/db/tenant-scope.ts`. El `tenant_id` nunca se acepta del body/query de un request — siempre se resuelve server-side desde la sesión o desde el `slug`.

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { getDb } from "@/lib/db/client";
 import { decrypt } from "@/lib/crypto";
 import { generateAgentReply } from "@/lib/ai/agent";
-import { getAiAgentConfigByPhoneNumberId } from "@/lib/db/tenant-scope";
+import { findLeadByPhoneForTenant, getAiAgentConfigByPhoneNumberId, recordWhatsappMessage } from "@/lib/db/tenant-scope";
 import { sendWhatsappMessage, verifyMetaWebhookSignature } from "@/lib/whatsapp/graph-client";
 
 /**
@@ -64,6 +64,19 @@ export async function POST(request: Request) {
     return new Response("OK", { status: 200 });
   }
 
+  // El lead es opcional: un número que escribe por primera vez no tiene lead
+  // todavía, y el mensaje se guarda igual (ver plan-implementacion.md Fase 6,
+  // `whatsapp_messages.lead_id` es nullable para este caso).
+  const lead = await findLeadByPhoneForTenant(db, config.tenantId, from);
+
+  await recordWhatsappMessage(db, config.tenantId, {
+    leadId: lead?.id ?? null,
+    phoneNumberId,
+    direction: "inbound",
+    body: message,
+    status: "received",
+  });
+
   try {
     const geminiKey = await decrypt(config.geminiKeyEnc, env.ENCRYPTION_KEY);
     const reply = await generateAgentReply(
@@ -74,6 +87,13 @@ export async function POST(request: Request) {
       geminiKey
     );
     await sendWhatsappMessage(phoneNumberId, from, reply, env.META_SYSTEM_USER_TOKEN);
+    await recordWhatsappMessage(db, config.tenantId, {
+      leadId: lead?.id ?? null,
+      phoneNumberId,
+      direction: "outbound",
+      body: reply,
+      status: "sent",
+    });
   } catch (error) {
     // Se loguea pero igual se responde 200 — un error acá no debe hacer que
     // Meta reintente el mismo mensaje en bucle.

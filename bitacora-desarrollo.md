@@ -465,3 +465,287 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 - Siguen pendientes de antes: aprovisionar Cloudflare real (Fase 0), `RESEND_API_KEY` real (diferido junto con Billing), y los 3 riesgos de infraestructura de la sección 15 (backups, límite de D1, plan de Cloudflare Images).
 
 **Próximo paso:** el MVP está, en términos de código, completo salvo Billing (diferido) y Resend (diferido). Lo único que falta para un lanzamiento real son credenciales/cuentas externas (Cloudflare, Meta, Gemini) que dependen del usuario — no hay más fases de desarrollo activo planeadas hasta que esas cuentas estén listas, o hasta que el usuario pida retomar Billing/Resend.
+
+---
+
+## 2026-11-07 — Auditoría de "relleno" post-rediseño visual y conexión real de datos
+
+**Quién:** Claude (sesión de auditoría + corrección)
+**Fase (según plan-implementacion.md):** 3 (pulido) — correcciones posteriores al rediseño visual que se hizo en paralelo fuera de esta sesión
+
+**Qué se hizo:**
+- Un rediseño visual sustancial (Sidebar, TopBar, dark mode, dashboard "Resumen", páginas de Agente IA/Configuración) se había aplicado directamente en el repo, en paralelo a esta conversación, con datos de ejemplo tipo mockup (nombres y cifras inventadas: "148 propiedades", "$4.250M pipeline", "Dr. Roberto Meza", "Plan Pro Inmobiliario $189.000/mes", etc.) que no venían de la base de datos real del tenant demo.
+- Se corrigieron bugs de layout introducidos por ese rediseño: `a { color: inherit }` sin `@layer` pisaba `text-white` en los botones; el sidebar `fixed` no dejaba margen al contenido (quedaba tapado); el fondo raíz del layout no tenía variante `dark:`, dejando franjas blancas entre tarjetas en modo oscuro.
+- Se hizo el sidebar retráctil (persiste en `localStorage` + atributo `data-sidebar` en `<html>`), se movió "Cerrar sesión" al sidebar, se quitó el indicador fijo "Bot WhatsApp Activo 24/7" del TopBar, y se creó `/dashboard/settings/profile` (edición real de nombre/teléfono y cambio de contraseña vía Better Auth, no un formulario decorativo).
+- Se encargó una auditoría (subagente) de cada página bajo `app/(dashboard)/dashboard/**` para distinguir qué está conectado a datos reales y qué es relleno visual. Hallazgos y correcciones aplicadas:
+  - **Bugs reales corregidos:** link "Ficha" en Propiedades apuntaba a una ruta inexistente (404); "Mi Web Pública" en el sidebar apuntaba a un slug fijo ajeno al tenant; botón "+ Nueva Oportunidad" sin `onClick`; banner de WhatsApp en Agente IA que siempre decía "Conectado & Operativo" sin importar el estado real; error de tipos en `settings/team/page.tsx` (`session.userId` → `session.user.id`).
+  - **Dashboard "Resumen" reescrito por completo** (`app/(dashboard)/dashboard/page.tsx`): ahora usa `getLeadsForTenant`, `listDealsWithContextForTenant`, `listPropertiesForTenant` y una función nueva `listVisitsWithContextForTenant` (agregada a `tenant-scope.ts`) — KPIs, pipeline por etapa, próximas visitas y leads recientes son 100% reales del tenant, sin un solo número inventado.
+  - **Badges del sidebar** ("Propiedades 148", "Oportunidades 18") pasaron a ser conteos reales calculados en el layout del dashboard y pasados como prop a `Sidebar`.
+  - **Página de Agente IA:** se quitó el badge falso "Edge Workers Latencia 185ms"; las 4 tarjetas de métricas inventadas (volumen de mensajes, leads cualificados, tiempo de respuesta, satisfacción) se reemplazaron por 2 métricas reales derivables de `leads.source = 'whatsapp'` (no hay tabla de historial de conversaciones todavía, así que las métricas que sí la requieren se retiraron con una nota explícita en vez de inventarse).
+  - **`AiAgentForm`:** se eliminaron los campos que nunca se enviaban al API (nombre del asistente, idioma, tono, 3 checkboxes de reglas de cualificación, umbral VIP) — se verificó en `lib/ai/agent.ts` que el `systemPrompt` se pasa literal a Gemini sin interpolar variables como `{catalogo_propiedades}`, así que los "chips de variables dinámicas" tampoco funcionaban y se quitaron. Solo quedan los campos que de verdad se guardan.
+  - **`WhatsAppChatSimulator`:** se quitó la conversación semilla con marca inventada ("Sofía de InmoElite Prime"), la tarjeta de propiedad ficticia con botones muertos ("Brochure PDF", "Ver Ubicación"), y el panel "Score IA en Tiempo Real" (zona/presupuesto/broker/score) que era 100% estático. El simulador ahora es solo el chat real contra `/api/ai-agent/test` (Gemini real).
+  - **Configuración de la Inmobiliaria:** la tarjeta "Plan Pro Inmobiliario" (precio, fecha de renovación, cupo de inventario, botón "Gestionar Facturación" muerto) se reemplazó por una tarjeta honesta con el conteo real de propiedades activas y asesores, y una nota de que Billing está diferido. El badge "3 miembros" en la pestaña de equipo pasó a ser el conteo real.
+- Verificado en vivo contra el servidor ya corriendo (puerto 3000) con la cuenta demo real: `tsc --noEmit` limpio, `npm test` 29/29, y por `curl` confirmado que el payload RSC de `/dashboard`, `/dashboard/ai-agent` y `/dashboard/settings/agency` ya no contiene ninguno de los valores inventados y sí refleja los datos reales sembrados (5 propiedades, 4 leads, 5 deals en sus etapas correctas, 2 visitas próximas).
+
+**Decisiones tomadas:**
+- Decisión: donde no existe la data real para una métrica (volumen de mensajes de WhatsApp, tiempo de respuesta, satisfacción, score de IA en tiempo real), se retira el elemento visual en vez de dejarlo con un número fijo o un "próximamente" a medias.
+  **Por qué:** regla del proyecto de no dejar funcionalidad a medio implementar ni mentir sobre el estado de una conexión — mejor ausencia honesta que apariencia de feature que no existe.
+  **Alternativa descartada:** marcar esas tarjetas como "Próximamente" y dejarlas — se descartó por ser relleno de todas formas, solo que etiquetado.
+
+**Bloqueadores abiertos:**
+- No hay tabla de historial de mensajes de WhatsApp — para medir volumen de mensajes, tiempo de respuesta real y tasa de éxito autónoma del agente haría falta loggear cada mensaje entrante/saliente del webhook (`app/api/webhooks/whatsapp/route.ts`), lo cual no está en el alcance pedido hasta ahora.
+- `app/(dashboard)/dashboard/crm/[leadId]/page.tsx` sigue con el estilo visual anterior al rediseño — es funcional y real, solo visualmente inconsistente con el resto del dashboard ya migrado.
+
+**Próximo paso:** investigar y reportar funcionalidades típicas de un CRM inmobiliario que todavía faltan en este MVP (pedido explícito del usuario), para decidir junto con él qué se construye a continuación.
+
+---
+
+## 2026-11-07 — Plan de las Fases 6-13 (cierre de brechas de CRM inmobiliario)
+
+**Quién:** Claude
+**Fase (según plan-implementacion.md):** planificación de Fases 6-13 (ninguna construida todavía)
+
+**Qué se hizo:**
+- A partir del análisis de brechas de la entrada anterior (13 puntos: historial de WhatsApp, tareas/recordatorios, notificaciones, documentos/contratos, comisiones, portales externos, reportes, calendario, firma electrónica, historial de interacciones, matching lead↔propiedad, PWA móvil, reseñas), el usuario pidió los 13 y que se armara el plan de fases.
+- Se agregó la sección **"1-bis. Fases 6-13"** en `plan-implementacion.md`, agrupando los 13 puntos en 8 fases nuevas ordenadas por dependencia de datos (no por importancia de negocio): Fase 6 (historial de WhatsApp + timeline de leads), Fase 7 (tareas + notificaciones), Fase 8 (comisiones + reportes), Fase 9 (documentos/contratos/firma), Fase 10 (calendario), Fase 11 (matching inteligente), Fase 12 (portales externos), Fase 13 (PWA + reseñas).
+- Se encontró, revisando el schema antes de escribir el plan, que `properties.commission_percentage` y `deals.advisor_id` **ya existen y ya se capturan** (el primero desde `PropertyForm`), solo que nadie los consume todavía — la Fase 8 se documentó como mayormente de lectura/agregación, no de schema nuevo, gracias a este hallazgo.
+
+**Decisiones tomadas:**
+- Decisión: Fase 12 (portales externos) empieza con una tarea explícita de investigación/confirmación con el usuario antes de escribir código (¿tienen API real o solo feed?, ¿requieren plan pagado?).
+  **Por qué:** es la fase de mayor riesgo externo — cada portal colombiano (Fincaraíz, Metrocuadrado, Properati) tiene su propio contrato comercial/técnico que no se puede asumir sin confirmarlo, a diferencia de Meta/Gemini donde ya había una app propia de referencia.
+- Decisión: la firma electrónica real (proveedor tipo HelloSign/DocuSign) se deja fuera del alcance de la Fase 9 — esa fase solo entrega el PDF listo para firma manual/externa.
+  **Por qué:** conectar un proveedor de firma implica una cuenta/costo externo nuevo, mismo patrón que Wompi en Billing — se prefiere no bloquear toda la fase de documentos por una cuenta que el usuario aún no tiene.
+- Decisión: el envío de notificaciones por email (Fase 7) se construye pero queda sin poder verificarse en vivo hasta tener una `RESEND_API_KEY` real.
+  **Por qué:** es la misma decisión ya tomada y documentada en la Fase 3 (Resend diferido junto con Billing) — no se reabre esa decisión, solo se nota que esta fase nueva hereda la misma limitación.
+
+**Bloqueadores abiertos:**
+- Fase 10 (calendario): la sincronización con Google Calendar requiere credenciales de Google Cloud nuevas que el usuario no ha provisto todavía.
+- Fase 12 (portales externos): pendiente la investigación de qué modalidad de integración (API vs. feed) ofrece cada portal antes de poder estimar el trabajo real.
+- Fase 11 (matching): queda una decisión abierta con el usuario — si se agregan campos estructurados (`preferredCity`/`preferredType`) a `leads`, o si se usa el agente de IA para extraerlos de `notes` on-demand.
+
+**Próximo paso:** confirmar con el usuario si se arranca la Fase 6 (historial de WhatsApp + timeline) en el mismo orden del plan, o si pide adelantar otra fase.
+
+---
+
+## 2026-11-07 — Fase 6: historial de WhatsApp + timeline de leads (construida y verificada en vivo)
+
+**Quién:** Claude
+**Fase (según plan-implementacion.md):** 6
+
+**Qué se hizo:**
+- Dos tablas nuevas en `lib/db/schema/domain.ts` + migración `drizzle/migrations/0001_violet_silver_sable.sql`: `whatsapp_messages` (mensaje real entrante/saliente, `lead_id` nullable porque un número nuevo puede escribir sin tener lead todavía) y `lead_activities` (timeline: `stage_change`, `note`, `call`, `deal_created`, `visit_scheduled`, `whatsapp_message`).
+- `lib/db/tenant-scope.ts`: nuevas funciones `logLeadActivity`, `listLeadActivitiesForTenant`, `recordWhatsappMessage`, `listWhatsappMessagesForLead`, `findLeadByPhoneForTenant` (empareja un `from` de Meta con indicativo de país contra `leads.whatsapp`/`leads.phone` comparando solo los últimos 10 dígitos, en memoria sobre los leads del tenant). Se conectó el log automático de actividad en `updateLeadForTenant` (cambio de etapa), `createDealForTenant` (oportunidad abierta) y `createVisitForTenant` (visita agendada) — nunca se llama desde el cliente directamente.
+- `app/api/webhooks/whatsapp/route.ts`: ahora resuelve el lead por teléfono y registra tanto el mensaje entrante como la respuesta saliente del agente en `whatsapp_messages` (y en el timeline del lead, si existe).
+- `app/api/ai-agent/test/route.ts`: el simulador también registra sus mensajes (con `phoneNumberId = "simulador"` cuando el tenant no tiene un número real conectado, porque la columna es `NOT NULL`).
+- `app/(dashboard)/dashboard/crm/[leadId]/page.tsx`: se agregaron las secciones "Conversación de WhatsApp" e "Historial", leyendo datos reales — sin tocar el resto del estilo visual de esa página (sigue pendiente de migrar al nuevo diseño, no es parte de esta fase).
+- 10 tests nuevos en `tests/trazabilidad.test.ts` (aislamiento multitenant de mensajes/actividades, no duplica actividad si el stage no cambia, matching de teléfono por últimos 10 dígitos, mensajes sin lead no rompen nada).
+- **Verificado en vivo contra la cuenta demo real**, aplicando la migración 0001 directo al `.sqlite` de Miniflare: se cambió la etapa de un lead real por `PATCH /api/leads/[id]` y apareció en su timeline; se firmó un payload de webhook de WhatsApp real con HMAC-SHA256 (mismo secreto que `.dev.vars`) simulando un mensaje entrante del teléfono de un lead sembrado, y se confirmó por SQL directo y por `curl` a la página del lead que el mensaje y la actividad `whatsapp_message` quedaron guardados y se renderizan en `/dashboard/crm/[leadId]`. Se revirtieron después todos los datos de prueba (el `phone_number_id` temporal, el mensaje de prueba) para no dejar la demo en un estado inconsistente con "Sin conectar" que se ve en el resto del dashboard.
+
+**Decisiones tomadas:**
+- Decisión: `recordWhatsappMessage` del simulador de prueba (`/api/ai-agent/test`) no se asocia a ningún lead (`leadId: null` siempre).
+  **Por qué:** es una prueba interna del admin, no una conversación real de un cliente — asociarla a un lead arbitrario sería inventar una interacción que no ocurrió, lo mismo que se evitó en la auditoría del "relleno".
+- Decisión: `findLeadByPhoneForTenant` compara en memoria sobre todos los leads del tenant, no con una query indexada.
+  **Por qué:** SQLite/D1 no tiene función regexp nativa para extraer los últimos N dígitos en una cláusula `WHERE` eficiente, y el volumen esperado (una sola inmobiliaria) hace que esto no sea un problema de rendimiento real hoy. Si el volumen crece, se puede revisar.
+
+**Bloqueadores abiertos:**
+- Ninguno nuevo. Los mismos de siempre (número real de WhatsApp conectado, Gemini key real) siguen aplicando para ver el flujo end-to-end sin intervención manual.
+
+**Próximo paso:** Fase 7 (tareas y notificaciones), según el orden del plan — pendiente de confirmación del usuario.
+
+---
+
+## 2026-11-07 — Fase 7: tareas y notificaciones (construida y verificada en vivo)
+
+**Quién:** Claude
+**Fase (según plan-implementacion.md):** 7
+
+**Qué se hizo:**
+- Dos tablas nuevas + migración `drizzle/migrations/0002_optimal_donald_blake.sql`: `tasks` (`leadId`/`dealId` opcionales, `dueAt`, `status` pending/done, `assigneeId` opcional) y `notifications` (por usuario, no por tenant, para que cada quien marque las suyas como leídas de forma independiente).
+- `lib/db/tenant-scope.ts`: CRUD completo de tareas (`listTasksForTenant`, `getTaskForTenant`, `createTaskForTenant`, `updateTaskForTenant`, `deleteTaskForTenant`, `listOverdueTasksForTenant`) y de notificaciones (`createNotificationForTenant`, `notifyTenantTeam`, `listNotificationsForUser`, `countUnreadNotificationsForUser`, `markNotificationReadForUser`, `markAllNotificationsReadForUser`, `hasNotificationForLink` para no duplicar avisos en corridas sucesivas del cron).
+- Disparadores conectados directamente en las funciones que ya mutan estado: `createLeadForTenant` notifica a todo el equipo cuando el lead llega por un canal público (website/whatsapp/referral) — **no** cuando es alta manual desde el dashboard, para no notificar al usuario de su propia acción. `createVisitForTenant` notifica al asesor asignado si lo hay, o a todo el equipo si no.
+- `app/api/cron/check-tasks/route.ts`: endpoint admin-only que escanea las tareas vencidas del tenant de la sesión y genera notificaciones `task_due`, con deduplicación para no repetir el aviso en cada corrida. **No es un Cloudflare Cron Trigger real todavía** — `vinext` controla el entrypoint del Worker (`entrypoint: "vinext/server/fetch-handler"` en `cloudflare.config.ts`), así que agregar un handler `scheduled()` de verdad requiere investigar cómo exponerlo sin pelearse con ese entrypoint (ver bloqueador abajo). Mientras tanto, se invoca manualmente — tal como el propio plan ya contemplaba como aceptable para el criterio de salida.
+- CRUD de tareas expuesto en `app/api/tasks/route.ts` + `[id]/route.ts`; notificaciones en `app/api/notifications/route.ts` (listar + marcar todas leídas) + `[id]/route.ts` (marcar una leída).
+- UI nueva: `NotificationBell.tsx` (campanita en el TopBar, poll cada 30s, dropdown con marcar leída individual o todas) y `TaskList.tsx` (lista + alta rápida + marcar hecha), reutilizado tanto en el Resumen (tareas del tenant completo) como en la ficha de lead (`crm/[leadId]/page.tsx`, solo las de ese lead).
+- 11 tests nuevos en `tests/tasks-notifications.test.ts` (aislamiento multitenant de tareas y notificaciones, no notifica en alta manual, sí notifica en alta pública, dedup de `hasNotificationForLink`, etc.) — 50/50 en total.
+- **Verificado en vivo contra la cuenta demo real**: se creó una tarea vencida y una futura por API, se corrió el cron handler manualmente (`notified: 2`, uno por cada miembro del equipo demo) y se confirmó que no duplica en una segunda corrida (`notified: 0`); se marcó una notificación como leída y bajó el contador; se creó un lead público real (con las claves de prueba de Turnstile) y se confirmó que generó automáticamente su notificación con el link correcto a la ficha del lead. Se revirtieron después todos los datos de prueba.
+
+**Decisiones tomadas:**
+- Decisión: el endpoint `/api/cron/check-tasks` queda protegido por sesión de admin (igual que cualquier otro endpoint de configuración), operando solo sobre el tenant de esa sesión — no procesa todos los tenants de la app.
+  **Por qué:** exponerlo como una ruta pública sin autenticación para que la invoque un verdadero Cron Trigger habría requerido inventar un mecanismo de secreto compartido nuevo, una decisión de seguridad que no estaba pedida. Reusar la sesión existente es más simple y consistente con el resto del código. Se dejó `listAllTenantIds` en `tenant-scope.ts` como pieza ya lista para cuando se conecte un `scheduled()` real que si necesite iterar todos los tenants.
+- Decisión: el email de notificación (Resend) no se implementó en esta fase.
+  **Por qué:** es la misma decisión ya tomada en la Fase 3 (Resend diferido junto con Billing) — no se reabre, solo se hereda. Las notificaciones de esta fase son 100% in-app.
+
+**Bloqueadores abiertos:**
+- Conectar un Cloudflare Cron Trigger real (`scheduled()`) requiere investigar cómo convive con el entrypoint que vinext ya controla (`vinext/server/fetch-handler`) — no se resolvió en esta fase, el endpoint de tareas vencidas sigue siendo de invocación manual/externa (ej. un cron de GitHub Actions que haga `curl` autenticado, o resolver esto cuando se aprovisione Cloudflare de verdad).
+- Igual que siempre: notificaciones por email siguen atadas a una `RESEND_API_KEY` real todavía no disponible.
+
+**Próximo paso:** Fase 8 (comisiones y reportes), según el orden del plan — pendiente de confirmación del usuario.
+
+---
+
+## 2026-11-07 — Fase 8: comisiones y reportes (construida y verificada en vivo)
+
+**Quién:** Claude
+**Fase (según plan-implementacion.md):** 8
+
+**Qué se hizo:**
+- `lib/db/tenant-scope.ts`: `getCommissionsReportForTenant` (comisión = `dealValueCents * commissionPercentage/100` de la propiedad, por cada deal `closed_won`, agrupado por asesor — sin asesor cae en un grupo `null`), `getConversionBySourceForTenant` (leads por canal vs. cuántos llegaron a `closed_won`), `getAverageClosingDaysForTenant` (aproximación: días entre `createdAt` y `updatedAt` del deal, documentado explícitamente como aproximación porque no existe una columna `closed_at` separada), `getAdvisorRankingForTenant`.
+- Página nueva `/dashboard/reports`, agregada a la navegación del sidebar, con exportación a CSV client-side (`CsvExportButton.tsx`, genera el archivo en el navegador sin pasar por un endpoint nuevo).
+- Sin schema nuevo: se confirmó lo ya encontrado en la fase de planificación — `properties.commission_percentage` y `deals.advisor_id` ya existían y se capturan, esta fase fue pura agregación/lectura.
+- 6 tests nuevos en `tests/reports.test.ts` (cálculo de comisión, agrupación sin asesor, aislamiento multitenant, conversión por canal, ranking) — 56/56 en total.
+- **Verificado en vivo**: sobre la cuenta demo, el único deal `closed_won` sembrado (apartamento Sabaneta, `$3.200.000` de valor, propiedad con 8% de comisión) aparece en el reporte con exactamente `$2.560 COP` de comisión bajo "Sin asesor asignado" — calculado correctamente a partir de datos reales, no inventado.
+
+**Decisiones tomadas:**
+- Decisión: la velocidad de cierre usa `updatedAt` del deal como proxy de la fecha de cierre real.
+  **Por qué:** el schema no tiene una columna `closed_at` separada y agregarla ahora sería un cambio de schema no pedido para una métrica secundaria — se documenta la aproximación en el propio código, no se presenta como un dato exacto de auditoría.
+
+**Bloqueadores abiertos:** ninguno nuevo.
+
+**Próximo paso:** Fase 9 (documentos, contratos y firma electrónica), según el orden del plan.
+
+---
+
+## 2026-11-07 — Fase 9: documentos, contratos y firma electrónica (construida y verificada en vivo)
+
+**Quién:** Claude
+**Fase (según plan-implementacion.md):** 9
+
+**Qué se hizo:**
+- **Descubrimiento técnico importante:** investigando cómo guardar archivos (el plan dejaba abierto "R2 vs. otra cosa"), se encontró que `cf/config` (`@cloudflare/config`, de donde viene `bindings`/`defineWorker` en `cloudflare.config.ts`) **sí soporta `bindings.r2({ name })`** — no hacía falta ningún paquete nuevo ni cambiar de herramienta. También se encontró `triggers.scheduled({ schedule })` en el mismo paquete, lo que sugiere que sí se podría conectar un Cloudflare Cron Trigger real para el bloqueador abierto de la Fase 7 — **no se investigó más a fondo en esta sesión** (requiere ver cómo convive con el entrypoint `vinext/server/fetch-handler`), queda anotado como pista concreta para retomar esa Fase 7 pendiente.
+- `cloudflare.config.ts`: nuevo binding `DOCUMENTS: bindings.r2({ name: "saas-inmobiliario-documents" })`. Se confirmó que el tipo de `env.DOCUMENTS` (`R2Bucket`) se infiere automáticamente sin correr ningún comando de generación — sí hizo falta `cf workers types` en un intento, pero resultó innecesario: el propio `tsc` ya lo resolvía por inferencia desde `cloudflare.config.ts`.
+- Tabla nueva `documents` (`leadId`/`dealId`/`propertyId` todos opcionales, `type` enum, `fileName`, `contentType`, `sizeBytes`, `storageKey`, `uploadedBy`) + migración `drizzle/migrations/0003_perpetual_changeling.sql`. El archivo en sí vive en R2; la tabla solo guarda la referencia.
+- `lib/db/tenant-scope.ts`: `createDocumentForTenant` (valida que lead/deal/propiedad referenciados sean del tenant antes de guardar la fila), `listDocumentsForTenant`, `getDocumentForTenant`, `deleteDocumentForTenant`.
+- `app/api/documents/route.ts` (`GET` lista, `POST` sube un `multipart/form-data` real — límite 15MB, sube a R2 primero y si la fila falla por tenant cruzado borra el objeto para no dejarlo huérfano), `app/api/documents/[id]/route.ts` (`DELETE`, borra fila + objeto R2), `app/api/documents/[id]/download/route.ts` (`GET`, streamea el objeto solo si pertenece al tenant de la sesión — **nunca hay una URL pública directa del bucket**).
+- **Decisión técnica documentada (regla 5):** para "ficha de inmueble en PDF" y "contrato listo para firma manual", no se integró una librería de generación de PDF server-side (`@react-pdf/renderer` y similares dependen de APIs de Node/canvas que no son seguras en el runtime de Workers). En su lugar se construyeron páginas HTML imprimibles (`/dashboard/properties/[id]/sheet` y `/dashboard/crm/[leadId]/contract/[dealId]`) con estilos `print:` de Tailwind (ocultan sidebar/topbar/nav al imprimir) y un botón que llama a `window.print()` — el usuario guarda como PDF desde el diálogo nativo del navegador. Cero dependencias nuevas, 100% compatible con Workers.
+- El borrador de contrato se arma con datos 100% reales: nombre del tenant, nombre/documento del propietario (si existe), nombre/email/teléfono del lead, dirección/área/precio de la propiedad, valor y comisión del deal — con un aviso explícito de que es un borrador interno que requiere revisión legal antes de firmarse, dejando la firma electrónica real (proveedor externo tipo HelloSign/DocuSign) fuera de esta fase, tal como ya contemplaba el plan.
+- `DocumentList.tsx` (subir/listar/descargar/eliminar) embebido en la ficha de lead y en la edición de propiedad; `PrintButton.tsx` reutilizado en ambas páginas imprimibles.
+- 6 tests nuevos en `tests/documents.test.ts` (aislamiento multitenant, documento sin asociar, no crea si el lead es de otro tenant, borrado devuelve el `storageKey` para limpiar R2) — 62/62 en total.
+- **Verificado en vivo contra R2 real** (vía la simulación local de Miniflare, igual que D1): se subió un archivo de texto real por `multipart/form-data`, se descargó de vuelta y el contenido coincidió byte a byte, se borró y se confirmó que tanto la fila como el objeto desaparecieron (404 al intentar descargarlo después). Se generó la ficha PDF de una propiedad real de la demo y el borrador de contrato del deal `closed_won` real (Laura Gómez / Apartamento Sabaneta), ambos con los datos reales correctos.
+
+**Decisiones tomadas:**
+- Decisión: usar páginas HTML + `window.print()` en vez de una librería de PDF server-side.
+  **Por qué:** ver arriba — riesgo de incompatibilidad con el runtime de Workers, cero dependencias nuevas, resultado idéntico para el usuario (un PDF descargado).
+- Decisión: la firma electrónica real queda fuera de esta fase.
+  **Por qué:** ya estaba así en el plan — requiere una cuenta/costo externo nuevo (HelloSign/DocuSign), mismo patrón que Wompi.
+
+**Bloqueadores abiertos:**
+- Ninguno nuevo para esta fase. Se encontró una pista (`triggers.scheduled`) para resolver el bloqueador ya abierto de la Fase 7 (Cron Trigger real), pero no se investigó a fondo — queda para cuando se retome esa fase o se pida explícitamente.
+
+**Próximo paso:** Fase 10 (calendario), según el orden del plan.
+
+---
+
+## 2026-11-07 — Fase 10: calendario (construida y verificada en vivo)
+
+**Quién:** Claude
+**Fase (según plan-implementacion.md):** 10
+
+**Qué se hizo:**
+- `components/dashboard/CalendarView.tsx`: vista mensual y semanal (toggle) sobre las `visits` reales del tenant, construida a mano con `date-fns` (ya era dependencia del proyecto, sin librerías de calendario nuevas) — celdas por día, visitas agendadas con su hora y color según estado (`scheduled`/`completed`/`cancelled`), panel de detalle al seleccionar un día.
+- Página nueva `/dashboard/calendar`, agregada al sidebar.
+- Sincronización con Google Calendar por asesor: tabla nueva `google_calendar_connections` (una por `userId`, con tokens cifrados vía `lib/crypto.ts`) + migración `drizzle/migrations/0004_handy_daredevil.sql`; `lib/google-calendar.ts` (`fetch` directo a las APIs reales de Google — authorize URL, intercambio de código, refresh de token, creación de evento — mismo patrón que `lib/whatsapp/embedded-signup.ts`); flujo OAuth2 completo: `GET /api/integrations/google-calendar/connect` (redirige a Google, guarda un `state` anti-CSRF en cookie), `GET /api/integrations/google-calendar/callback` (verifica el `state`, intercambia el código, cifra y guarda los tokens), `GET/DELETE /api/integrations/google-calendar` (estado de conexión / desconectar).
+- `app/api/visits/route.ts`: al crear una visita con `advisorId`, si ese asesor tiene Google Calendar conectado se crea el evento allá — mejor esfuerzo, nunca tumba la creación de la visita si Google falla (mismo criterio que el agente de WhatsApp en el webhook); si el access token expiró, se refresca con el refresh token antes de reintentar.
+- Secrets nuevos en `cloudflare.config.ts`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (pendientes de que el usuario cree un proyecto OAuth2 en Google Cloud Console — mismo patrón de bloqueo externo que Meta/Gemini).
+- 5 tests nuevos en `tests/google-calendar.test.ts` (construcción de la URL de autorización, aislamiento multitenant de la conexión, upsert en vez de duplicar) — 67/67 en total.
+- **Verificado en vivo**: `/dashboard/calendar` carga y pasa las 3 visitas reales de la demo al calendario (confirmado por el payload RSC); `GET /api/integrations/google-calendar/connect` redirige de verdad a `accounts.google.com` con los parámetros correctos y guarda el `state` en cookie; se simuló el retorno de Google al callback con un código falso y **la API real de Google respondió con un rechazo real** ("The OAuth client was not found", HTTP 401) — misma prueba de "llega a la API real" ya usada con Meta y Gemini.
+
+**Decisiones tomadas:**
+- Decisión: la sincronización es de salida únicamente (CRM → Google Calendar al crear una visita), no bidireccional.
+  **Por qué:** una sincronización bidireccional (webhooks de Google Calendar, resolución de conflictos) es sustancialmente más compleja y no estaba pedida — el caso de uso real ("que el asesor vea sus visitas en su calendario de siempre") se cubre con solo la salida.
+- Decisión: el calendario se construyó a mano con `date-fns` en vez de agregar una librería de calendario (`react-big-calendar`, `FullCalendar`, etc.).
+  **Por qué:** el requisito (vista mes/semana con las visitas reales) es acotado — una librería completa trae mucho más peso y superficie de la que hace falta para esto.
+
+**Bloqueadores abiertos:**
+- Credenciales OAuth2 reales de Google Cloud Console pendientes del usuario — mismo patrón que Meta/Gemini.
+
+**Próximo paso:** Fase 11 (matching inteligente lead↔propiedad), según el orden del plan.
+
+---
+
+## 2026-11-07 — Fase 11: matching inteligente lead↔propiedad (construida y verificada en vivo)
+
+**Quién:** Claude
+**Fase (según plan-implementacion.md):** 11
+
+**Qué se hizo:**
+- Se resolvió la decisión que el plan había dejado abierta ("¿campos estructurados o IA sobre `notes`?"): se agregaron 3 campos opcionales a `leads` — `preferredCity`, `preferredType` (mismo enum que `properties.type`), `preferredOperation` (mismo enum que `properties.operation`) — en vez de usar IA para extraerlos de texto libre.
+- `lib/db/tenant-scope.ts`: `getMatchingPropertiesForLead` — filtra propiedades activas y publicadas del tenant por tipo/operación/ciudad/presupuesto del lead; si el lead no tiene ninguna preferencia capturada, devuelve lista vacía en vez de sugerir al azar.
+- UI: sección "Propiedades Sugeridas" en la ficha del lead (`crm/[leadId]/page.tsx`), con botón "Abrir oportunidad" (`QuickDealButton.tsx`) que crea el deal directo sin pasar por el formulario completo; `NewContactForm.tsx` ahora captura ciudad/tipo/operación de interés y presupuesto (este último con el mismo patrón de `Controller` + conversión pesos↔centavos que ya usaba `PropertyForm` — también se notó que el formulario nunca había expuesto `budgetMinCents`/`budgetMaxCents` pese a que el schema y el backend ya los soportaban desde antes).
+- 6 tests nuevos en `tests/matching.test.ts` (sin preferencias no sugiere nada, filtra por ciudad/presupuesto/tipo, aislamiento multitenant, actualizar preferencias habilita el matching) — 73/73 en total.
+- **Bug real encontrado y corregido en una migración generada por drizzle-kit:** al agregar las 3 columnas nuevas junto con sus `CHECK` constraints, drizzle-kit generó un `INSERT INTO __new_leads(...) SELECT ... FROM leads` que incluía las columnas nuevas en el `SELECT` de la tabla **vieja**, que todavía no las tenía — la migración fallaba con `no such column: preferred_city`. Se corrigió a mano quitando esas 3 columnas del `INSERT`/`SELECT` (quedan `NULL` para las filas existentes, que es el comportamiento correcto) y se verificó aplicando la cadena completa de migraciones desde cero contra una base en memoria antes de tocar el D1 local.
+- **Verificado en vivo**: se le asignó a un lead real de la demo (Sandra, que en sus notas ya decía "busca lote en Rionegro") las preferencias estructuradas correspondientes vía `PATCH /api/leads/[id]`, y la ficha del lead mostró "Lote urbanizable en Rionegro" en Propiedades Sugeridas con su botón "Abrir oportunidad" — luego se revirtieron esas preferencias de prueba para no alterar los datos sembrados de la demo.
+
+**Decisiones tomadas:**
+- Decisión: preferencias estructuradas en vez de extracción por IA sobre `notes`.
+  **Por qué:** 3 campos opcionales que el asesor ya conoce al calificar el lead, sin costo ni latencia de un modelo de lenguaje, y sin el riesgo de que la IA extraiga algo incorrecto de un texto libre ambiguo.
+- Decisión: si el lead no tiene ninguna preferencia, no se sugiere nada (ni al azar ni "las más recientes").
+  **Por qué:** sugerir sin ningún criterio real sería peor que no sugerir — mismo principio aplicado en la auditoría de "relleno" del 2026-11-07.
+
+**Bloqueadores abiertos:** ninguno.
+
+**Próximo paso:** Fase 12 (portales externos: Fincaraíz, Metrocuadrado, Properati), según el orden del plan — empieza con investigación antes de código, tal como está documentado.
+
+---
+
+## 2026-11-07 — Fase 12: portales externos (investigación + feed real, construida y verificada en vivo)
+
+**Quién:** Claude
+**Fase (según plan-implementacion.md):** 12
+
+**Qué se hizo:**
+- **Investigación previa (vía WebSearch), tal como exigía el plan antes de escribir código:**
+  - **Fincaraíz:** no hay documentación oficial pública, pero existe un SDK de PHP de terceros (Homlity) para una "API de Integradores" real, con autenticación por API key. Confirma que la integración programática existe, pero las credenciales las entrega Fincaraíz directamente — no hay un registro de self-service.
+  - **Metrocuadrado:** API real identificada como "PTEC Core" (documentada por el mismo SDK de Homlity a partir de documentación oficial de Metrocuadrado), con dos hosts (uno de tokens, uno de recursos), autenticación por API key + usuario/contraseña, y operaciones de publicar/actualizar/despublicar **asíncronas** (devuelven un `transactionId` para consultar el resultado después). Credenciales de integrador también a solicitar directamente con Metrocuadrado.
+  - **Properati:** sin evidencia pública de una API o feed para que inmobiliarias publiquen — solo herramientas de terceros para *leer* anuncios ya publicados (scraping). Pertenece ahora a LIFULL Connect; cualquier integración real requeriría contacto comercial directo.
+  - **Conclusión:** los tres portales requieren credenciales de integrador que el usuario debe solicitar directamente — ninguno tiene una API pública auto-gestionable, mismo patrón de bloqueo externo que Meta/Gemini/Google. No se puede verificar en vivo contra sus APIs reales sin esas credenciales, a diferencia de Meta/Gemini/Google (que sí tienen endpoints públicos donde un rechazo de credenciales inválidas ya prueba que la integración llega).
+- **Decisión de alcance, documentada antes de construir:** en vez de intentar simular una integración específica de un portal sin poder verificarla de verdad, se construyó la pieza que **sí se puede construir y probar hoy sin esas credenciales**: un feed XML genérico y real del inventario publicado del tenant, listo para registrarse en el panel de integrador de cualquiera de los tres portales una vez el usuario tenga acceso.
+- Campo nuevo `tenants.portal_feed_token` (token opaco, único) + migración `drizzle/migrations/0006_pretty_black_tarantula.sql` (verificada contra la cadena completa de migraciones desde cero, sin el bug de la fase anterior).
+- `lib/db/tenant-scope.ts`: `getOrCreatePortalFeedToken` (idempotente — no regenera el token si ya existe, para no invalidar una URL ya registrada en un portal), `getTenantByPortalFeedToken`.
+- `GET /api/portals/feed/[token]` — endpoint **público, sin sesión** (lo consume el crawler del portal) protegido por el token impredecible en la URL, que genera XML real con las propiedades `active`+`published` del tenant (precio, tipo, operación, ubicación, fotos reales vía `buildImageUrl`, link a la ficha pública).
+- `GET /api/agency/portal-feed` (autenticado) + `PortalFeedCard.tsx` en Configuración → Mi Inmobiliaria: muestra la URL del feed con botón de copiar, y una nota explícita de que activar un portal específico requiere solicitar credenciales de integrador directamente a Fincaraíz/Metrocuadrado.
+- 5 tests nuevos en `tests/portal-feed.test.ts` (genera token, lo reutiliza, aislamiento multitenant, resuelve tenant por token, token inexistente no resuelve nada) — 78/78 en total.
+- **Verificado en vivo**: se generó el token real de la demo, se obtuvo la URL del feed, y se hizo `curl` directo contra ella (sin cookie de sesión, como lo haría el crawler de un portal) — devolvió XML válido con las 3 propiedades reales `active`+`published` de las 5 totales de la demo (las otras 2 están vendida/arrendada o en borrador), con precios, fotos y links reales. Un token inválido devuelve 404.
+
+**Decisiones tomadas:**
+- Decisión: no se construyó una integración específica de API contra Fincaraíz ni Metrocuadrado.
+  **Por qué:** sin credenciales de integrador reales no hay forma de verificar en vivo contra esas APIs (a diferencia de Meta/Gemini/Google, que tienen endpoints públicos donde incluso un rechazo de credenciales inválidas prueba que la integración llega) — construir contra endpoints no verificables habría significado adivinar formatos de payload, violando la regla de este proyecto de no fabricar funcionalidad que no se pueda probar.
+  **Alternativa descartada:** simular la integración con datos/endpoints inventados — descartada explícitamente por ir contra el principio de honestidad del proyecto (mismo que guió la auditoría de "relleno").
+
+**Bloqueadores abiertos:**
+- Credenciales de integrador reales de Fincaraíz y/o Metrocuadrado, a solicitar por el usuario directamente con cada portal. Cuando estén disponibles, el siguiente paso es implementar el cliente específico de la API de integrador de ese portal (autenticación, mapeo de campos del feed ya generado a su payload específico, manejo de las respuestas asíncronas de Metrocuadrado) — la investigación de esta fase ya deja documentado qué forma tiene cada API.
+- Properati no tiene un canal de integración conocido — requiere contacto comercial directo para confirmar si existe.
+
+**Próximo paso:** Fase 13 (PWA móvil + reseñas y testimonios), según el orden del plan — es la última fase pendiente.
+
+---
+
+## 2026-11-07 — Fase 13: PWA móvil + reseñas y testimonios (construida y verificada en vivo) — última de las fases 6-13
+
+**Quién:** Claude
+**Fase (según plan-implementacion.md):** 13
+
+**Qué se hizo:**
+- **PWA:** `public/manifest.json` (nombre, `start_url: /dashboard`, colores, ícono), `public/sw.js` (service worker mínimo: solo cachea assets estáticos de `_next/static`, manifest e ícono — **nunca** `/api/*` ni páginas del dashboard, para no arriesgar mostrar datos de CRM obsoletos como si fueran actuales), registrado desde `app/layout.tsx` con el mismo patrón ya usado para el script anti-flash del tema oscuro. Ícono en SVG (`public/icon.svg`) en vez de PNG — **limitación honesta documentada**: no hay forma de generar archivos de imagen rasterizados (PNG 192/512, maskable) en esta sesión; SVG es válido para manifest pero un set de íconos PNG queda como tarea de diseño pendiente para el usuario si se quiere instalabilidad estricta en todas las plataformas.
+- **Revisión de responsive:** spot-check de código (no una auditoría Lighthouse real — ver limitación abajo) sobre los flujos críticos para asesores en terreno: `Sidebar` ya se oculta en móvil (`hidden md:flex`) a favor de `MobileBottomNav`, `PropertiesTable` ya tenía una vista de tarjetas separada para móvil desde antes. No se encontraron problemas estructurales nuevos que requirieran arreglo en esta pasada.
+- Tabla nueva `property_reviews` (`propertyId` opcional, `authorName`, `rating` 1-5, `comment`, `isPublished` default `false`) + migración `drizzle/migrations/0007_faulty_toad_men.sql`.
+- `lib/db/tenant-scope.ts`: `createReviewForTenant`, `listReviewsForTenant` (todas, panel admin), `listPublishedReviewsForTenant` (solo publicadas, para la página pública), `updateReviewForTenant`, `deleteReviewForTenant`.
+- `app/api/reviews/route.ts` + `[id]/route.ts` (CRUD, admin-only). **Decisión de alcance:** las reseñas se registran desde el dashboard (el asesor anota lo que el cliente le compartió, ej. por WhatsApp), no hay formulario público de envío — evita tener que resolver moderación anti-spam/Turnstile para una funcionalidad secundaria.
+- UI: `/dashboard/reviews` (`ReviewsManager.tsx` — registrar + publicar/despublicar + eliminar) agregado al sidebar; `ReviewsSection.tsx` en la página pública del tenant (`app/[slug]/page.tsx`), mostrando solo las publicadas.
+- 6 tests nuevos en `tests/reviews.test.ts` (no publicada por defecto, no se crea si la propiedad es de otro tenant, no aparece en público hasta publicarse, aislamiento multitenant en publicar/borrar) — 84/84 en total.
+- **Verificado en vivo**: se registró una reseña real desde el dashboard de la demo, se publicó, y apareció en `http://localhost:3000/inmobiliaria-demo` (pedido **sin cookie de sesión**, como la vería cualquier visitante real) bajo "Lo que dicen nuestros clientes" con su texto y autor correctos. Se confirmó que `manifest.json`, `sw.js` e `icon.svg` se sirven con código 200 y que el script de registro del service worker está presente en el HTML del dashboard.
+
+**Decisiones tomadas:**
+- Decisión: el service worker solo cachea assets estáticos, nunca datos de la API ni páginas del dashboard.
+  **Por qué:** cachear datos de negocio dinámicos (leads, deals, visitas) correría el riesgo de mostrarle al asesor información vieja presentada como si fuera actual — inaceptable en un CRM, mismo principio de honestidad de datos que guió toda la auditoría de "relleno" de esta sesión.
+- Decisión: ícono del manifest en SVG, no PNG.
+  **Por qué:** no hay herramienta de generación de imágenes rasterizadas disponible en esta sesión — se documenta la limitación en vez de inventar un PNG o dejarlo sin ícono.
+- Decisión: la "revisión de responsive" de esta fase fue un spot-check de código, no una auditoría Lighthouse real.
+  **Por qué:** el navegador de esta sesión estuvo desconectado durante buena parte del trabajo de las fases 6-13 — se declara esta limitación explícitamente en vez de afirmar una verificación visual que no se pudo hacer.
+- Decisión: reseñas registradas por el asesor desde el dashboard, sin formulario público de envío.
+  **Por qué:** un formulario público de reseñas necesitaría su propia moderación anti-spam (Turnstile, cola de revisión) — fuera del alcance pedido; el flujo "asesor registra lo que el cliente le compartió" ya resuelve el caso de uso real de una inmobiliaria pequeña.
+
+**Bloqueadores abiertos:**
+- Set de íconos PNG (192/512, maskable) para instalabilidad PWA estricta en todas las plataformas — tarea de diseño, no de código.
+- Una auditoría Lighthouse PWA real requiere un navegador conectado — pendiente de hacerse cuando se retome una sesión con el navegador disponible.
+
+**Próximo paso:** **Las Fases 6-13 quedan completas.** Revisar con el usuario si hay más funcionalidad a construir, o si se retoma algún bloqueador externo (credenciales de Meta/Gemini/Google/Fincaraíz/Metrocuadrado) cuando estén disponibles.

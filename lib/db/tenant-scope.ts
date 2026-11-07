@@ -4,14 +4,21 @@ import type { Db } from "./client";
 import {
   aiAgentConfigs,
   deals,
+  documents,
+  googleCalendarConnections,
+  leadActivities,
   leadPropertyInterests,
   leads,
+  notifications,
   properties,
   propertyImages,
   propertyOwners,
+  propertyReviews,
+  tasks,
   tenants,
   user as userTable,
   visits,
+  whatsappMessages,
 } from "./schema";
 import type { CreatePropertyInput, UpdatePropertyInput } from "../validations/property";
 import type {
@@ -21,6 +28,7 @@ import type {
 import type { UpdateLeadInput } from "../validations/lead";
 import type { CreateDealInput, UpdateDealInput } from "../validations/deal";
 import type { CreateVisitInput, UpdateVisitInput } from "../validations/visit";
+import type { CreateTaskInput, UpdateTaskInput } from "../validations/task";
 
 /**
  * Capa obligatoria de acceso a datos por tenant (ver blueprint-saas-inmobiliario.md
@@ -44,6 +52,28 @@ export async function getLeadsForTenant(db: Db, tenantId: string, stage?: string
     .from(leads)
     .where(and(...conditions))
     .orderBy(desc(leads.createdAt));
+}
+
+/**
+ * Resuelve el lead dueño de un número de WhatsApp, comparando solo los
+ * últimos 10 dígitos — el `from` que manda Meta viene con indicativo de país
+ * (ej. "573001234567") mientras que `leads.whatsapp`/`leads.phone` suelen
+ * guardarse sin él. No hay forma de indexar esto en SQLite sin una función
+ * regexp, así que se compara en memoria sobre los leads del tenant (volumen
+ * esperado de una sola inmobiliaria, no miles de leads).
+ */
+export async function findLeadByPhoneForTenant(db: Db, tenantId: string, rawPhone: string) {
+  const digits = rawPhone.replace(/\D/g, "").slice(-10);
+  if (!digits) return null;
+
+  const tenantLeads = await getLeadsForTenant(db, tenantId);
+  return (
+    tenantLeads.find((lead) => {
+      const whatsappDigits = lead.whatsapp?.replace(/\D/g, "").slice(-10);
+      const phoneDigits = lead.phone?.replace(/\D/g, "").slice(-10);
+      return whatsappDigits === digits || phoneDigits === digits;
+    }) ?? null
+  );
 }
 
 export async function getLeadForTenant(db: Db, tenantId: string, leadId: string) {
@@ -71,6 +101,9 @@ export async function createLeadForTenant(
     notes?: string;
     budgetMinCents?: number;
     budgetMaxCents?: number;
+    preferredCity?: string;
+    preferredType?: "apartment" | "house" | "commercial" | "land";
+    preferredOperation?: "sale" | "rent" | "sale_rent";
   },
   propertyId?: string
 ) {
@@ -92,6 +125,20 @@ export async function createLeadForTenant(
     }
   }
 
+  // Solo se notifica al equipo cuando el lead llega por un canal público
+  // (website/whatsapp/referral) — un alta manual desde el dashboard la hizo
+  // el propio usuario, notificarle su propia acción sería ruido.
+  if (input.source !== "manual") {
+    await notifyTenantTeam(
+      db,
+      tenantId,
+      "new_lead",
+      `Nuevo lead: ${lead.fullName}`,
+      `Llegó por ${input.source}${input.notes ? ` — "${input.notes}"` : ""}`,
+      `/dashboard/crm/${lead.id}`
+    );
+  }
+
   return lead;
 }
 
@@ -111,7 +158,95 @@ export async function updateLeadForTenant(
     .where(and(eq(leads.id, leadId), eq(leads.tenantId, tenantId)))
     .returning();
 
+  if (row && input.stage && input.stage !== existing.stage) {
+    await logLeadActivity(
+      db,
+      tenantId,
+      leadId,
+      "stage_change",
+      `Cambió de etapa: "${existing.stage}" → "${input.stage}"`
+    );
+  }
+
   return row ?? null;
+}
+
+// =============================================
+// Timeline de interacciones y mensajes de WhatsApp (Fase 6, ver
+// plan-implementacion.md §1-bis)
+// =============================================
+
+/**
+ * Inserta una fila en el timeline del lead. Nunca se llama directo desde un
+ * route handler — siempre desde las funciones de este archivo que mutan
+ * estado (updateLeadForTenant, createDealForTenant, createVisitForTenant) o
+ * desde `recordWhatsappMessage`, para que el timeline refleje eventos reales,
+ * no lo que un cliente diga que pasó.
+ */
+export async function logLeadActivity(
+  db: Db,
+  tenantId: string,
+  leadId: string,
+  type: "stage_change" | "note" | "call" | "deal_created" | "visit_scheduled" | "whatsapp_message",
+  body: string,
+  actorId?: string
+) {
+  const [row] = await db
+    .insert(leadActivities)
+    .values({ id: crypto.randomUUID(), tenantId, leadId, type, body, actorId })
+    .returning();
+  return row;
+}
+
+export async function listLeadActivitiesForTenant(db: Db, tenantId: string, leadId: string) {
+  return db
+    .select()
+    .from(leadActivities)
+    .where(and(eq(leadActivities.tenantId, tenantId), eq(leadActivities.leadId, leadId)))
+    .orderBy(desc(leadActivities.createdAt));
+}
+
+/**
+ * Registra un mensaje real de WhatsApp (entrante o saliente) y, si ya hay un
+ * lead resuelto para ese número, agrega también una entrada al timeline —
+ * ver `app/api/webhooks/whatsapp/route.ts`.
+ */
+export async function recordWhatsappMessage(
+  db: Db,
+  tenantId: string,
+  input: {
+    leadId?: string | null;
+    phoneNumberId: string;
+    direction: "inbound" | "outbound";
+    body: string;
+    waMessageId?: string;
+    status?: "received" | "sent" | "failed";
+  }
+) {
+  const [message] = await db
+    .insert(whatsappMessages)
+    .values({ id: crypto.randomUUID(), tenantId, ...input })
+    .returning();
+
+  if (input.leadId) {
+    await logLeadActivity(
+      db,
+      tenantId,
+      input.leadId,
+      "whatsapp_message",
+      input.direction === "inbound" ? `Cliente: ${input.body}` : `Agente: ${input.body}`
+    );
+  }
+
+  return message;
+}
+
+export async function listWhatsappMessagesForLead(db: Db, tenantId: string, leadId: string) {
+  return db
+    .select()
+    .from(whatsappMessages)
+    .where(and(eq(whatsappMessages.tenantId, tenantId), eq(whatsappMessages.leadId, leadId)))
+    .orderBy(whatsappMessages.createdAt);
 }
 
 /** Ver blueprint §6: nunca se expone `propertyId` sin validar antes que el lead es del tenant. */
@@ -214,6 +349,16 @@ export async function createDealForTenant(db: Db, tenantId: string, input: Creat
     .values({ id: crypto.randomUUID(), tenantId, ...input })
     .returning();
 
+  if (deal) {
+    await logLeadActivity(
+      db,
+      tenantId,
+      input.leadId,
+      "deal_created",
+      `Se abrió una oportunidad sobre "${property.title}"`
+    );
+  }
+
   return deal;
 }
 
@@ -244,6 +389,30 @@ export async function listVisitsForTenant(db: Db, tenantId: string) {
   return db
     .select()
     .from(visits)
+    .where(eq(visits.tenantId, tenantId))
+    .orderBy(visits.scheduledAt);
+}
+
+/** Igual que `listVisitsForTenant`, pero con el nombre del lead, el título de
+ * la propiedad y el asesor ya resueltos — para pintar agenda/resumen, no para
+ * lógica de negocio. */
+export async function listVisitsWithContextForTenant(db: Db, tenantId: string) {
+  return db
+    .select({
+      id: visits.id,
+      scheduledAt: visits.scheduledAt,
+      status: visits.status,
+      notes: visits.notes,
+      leadId: visits.leadId,
+      propertyId: visits.propertyId,
+      leadName: leads.fullName,
+      propertyTitle: properties.title,
+      advisorName: userTable.name,
+    })
+    .from(visits)
+    .innerJoin(leads, eq(visits.leadId, leads.id))
+    .innerJoin(properties, eq(visits.propertyId, properties.id))
+    .leftJoin(userTable, eq(visits.advisorId, userTable.id))
     .where(eq(visits.tenantId, tenantId))
     .orderBy(visits.scheduledAt);
 }
@@ -291,6 +460,32 @@ export async function createVisitForTenant(db: Db, tenantId: string, input: Crea
     .insert(visits)
     .values({ id: crypto.randomUUID(), tenantId, ...input })
     .returning();
+
+  if (visit) {
+    const visitLabel = `Visita agendada a "${property.title}" para ${new Date(input.scheduledAt).toLocaleString("es-CO")}`;
+    await logLeadActivity(db, tenantId, input.leadId, "visit_scheduled", visitLabel);
+
+    if (input.advisorId) {
+      await createNotificationForTenant(
+        db,
+        tenantId,
+        input.advisorId,
+        "visit_scheduled",
+        `Visita con ${lead.fullName}`,
+        visitLabel,
+        `/dashboard/crm/${lead.id}`
+      );
+    } else {
+      await notifyTenantTeam(
+        db,
+        tenantId,
+        "visit_scheduled",
+        `Visita con ${lead.fullName}`,
+        `${visitLabel} — sin asesor asignado`,
+        `/dashboard/crm/${lead.id}`
+      );
+    }
+  }
 
   return visit;
 }
@@ -395,7 +590,7 @@ export async function createPropertyForTenant(
   input: CreatePropertyInput
 ) {
   const slug = await generateUniquePropertySlug(db, tenantId, input.title);
-  const { amenities, ...rest } = input;
+  const { amenities, images, ...rest } = input;
 
   const [row] = await db
     .insert(properties)
@@ -407,6 +602,18 @@ export async function createPropertyForTenant(
       amenitiesJson: JSON.stringify(amenities ?? []),
     })
     .returning();
+
+  if (images && images.length > 0) {
+    await db.insert(propertyImages).values(
+      images.map((imageId, position) => ({
+        id: crypto.randomUUID(),
+        propertyId: row.id,
+        imageId,
+        altText: row.title,
+        position,
+      }))
+    );
+  }
 
   return row;
 }
@@ -420,9 +627,24 @@ export async function updatePropertyForTenant(
   const existing = await getPropertyForTenant(db, tenantId, propertyId);
   if (!existing) return null;
 
-  const { amenities, ...rest } = input;
+  const { amenities, images, ...rest } = input;
   const patch: Record<string, unknown> = { ...rest };
   if (amenities !== undefined) patch.amenitiesJson = JSON.stringify(amenities);
+
+  if (images !== undefined) {
+    await db.delete(propertyImages).where(eq(propertyImages.propertyId, propertyId));
+    if (images.length > 0) {
+      await db.insert(propertyImages).values(
+        images.map((imageId, position) => ({
+          id: crypto.randomUUID(),
+          propertyId,
+          imageId,
+          altText: existing.title,
+          position,
+        }))
+      );
+    }
+  }
 
   if (Object.keys(patch).length === 0) return existing;
 
@@ -546,6 +768,16 @@ export async function getTenantBySlug(db: Db, slug: string) {
   return rows[0] ?? null;
 }
 
+/**
+ * Único lugar donde se listan tenants sin filtrar por uno solo — lo usa el
+ * handler de cron (`app/api/cron/check-tasks/route.ts`), que corre a nivel de
+ * app, no de un tenant autenticado. Nunca se expone a un endpoint con sesión.
+ */
+export async function listAllTenantIds(db: Db) {
+  const rows = await db.select({ id: tenants.id }).from(tenants);
+  return rows.map((r) => r.id);
+}
+
 // =============================================
 // Perfil de la inmobiliaria (Fase 3 — /dashboard/settings/agency, /dashboard/website)
 // =============================================
@@ -553,6 +785,103 @@ export async function getTenantBySlug(db: Db, slug: string) {
 export async function getTenantForTenant(db: Db, tenantId: string) {
   const rows = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Genera el token del feed de portales externos (Fase 12) si el tenant
+ * todavía no tiene uno, y lo devuelve. Idempotente: si ya existe, se
+ * reutiliza — regenerarlo invalidaría la URL que el tenant ya haya
+ * registrado en Fincaraíz/Metrocuadrado.
+ */
+export async function getOrCreatePortalFeedToken(db: Db, tenantId: string) {
+  const tenant = await getTenantForTenant(db, tenantId);
+  if (!tenant) return null;
+  if (tenant.portalFeedToken) return tenant.portalFeedToken;
+
+  const token = crypto.randomUUID().replaceAll("-", "");
+  await db.update(tenants).set({ portalFeedToken: token }).where(eq(tenants.id, tenantId));
+  return token;
+}
+
+export async function getTenantByPortalFeedToken(db: Db, token: string) {
+  const rows = await db.select().from(tenants).where(eq(tenants.portalFeedToken, token)).limit(1);
+  return rows[0] ?? null;
+}
+
+// =============================================
+// Reseñas y testimonios (Fase 13, ver plan-implementacion.md §1-bis)
+// =============================================
+
+export async function createReviewForTenant(
+  db: Db,
+  tenantId: string,
+  input: { propertyId?: string; authorName: string; rating: number; comment: string }
+) {
+  if (input.propertyId && !(await getPropertyForTenant(db, tenantId, input.propertyId))) return null;
+
+  const [row] = await db
+    .insert(propertyReviews)
+    .values({ id: crypto.randomUUID(), tenantId, ...input })
+    .returning();
+  return row;
+}
+
+/** Todas las reseñas del tenant (publicadas o no) — para el panel de moderación del admin. */
+export async function listReviewsForTenant(db: Db, tenantId: string) {
+  return db
+    .select()
+    .from(propertyReviews)
+    .where(eq(propertyReviews.tenantId, tenantId))
+    .orderBy(desc(propertyReviews.createdAt));
+}
+
+/** Solo las publicadas — para la página pública. */
+export async function listPublishedReviewsForTenant(
+  db: Db,
+  tenantId: string,
+  propertyId?: string
+) {
+  const conditions = [eq(propertyReviews.tenantId, tenantId), eq(propertyReviews.isPublished, true)];
+  if (propertyId) conditions.push(eq(propertyReviews.propertyId, propertyId));
+
+  return db
+    .select()
+    .from(propertyReviews)
+    .where(and(...conditions))
+    .orderBy(desc(propertyReviews.createdAt));
+}
+
+export async function updateReviewForTenant(
+  db: Db,
+  tenantId: string,
+  reviewId: string,
+  input: { isPublished?: boolean }
+) {
+  const rows = await db
+    .select()
+    .from(propertyReviews)
+    .where(and(eq(propertyReviews.id, reviewId), eq(propertyReviews.tenantId, tenantId)));
+  if (!rows[0]) return null;
+
+  const [row] = await db
+    .update(propertyReviews)
+    .set(input)
+    .where(and(eq(propertyReviews.id, reviewId), eq(propertyReviews.tenantId, tenantId)))
+    .returning();
+  return row ?? null;
+}
+
+export async function deleteReviewForTenant(db: Db, tenantId: string, reviewId: string) {
+  const rows = await db
+    .select({ id: propertyReviews.id })
+    .from(propertyReviews)
+    .where(and(eq(propertyReviews.id, reviewId), eq(propertyReviews.tenantId, tenantId)));
+  if (!rows[0]) return false;
+
+  await db
+    .delete(propertyReviews)
+    .where(and(eq(propertyReviews.id, reviewId), eq(propertyReviews.tenantId, tenantId)));
+  return true;
 }
 
 // =============================================
@@ -756,4 +1085,514 @@ export async function getAiAgentConfigByPhoneNumberId(db: Db, phoneNumberId: str
     .where(eq(aiAgentConfigs.whatsappPhoneNumberId, phoneNumberId))
     .limit(1);
   return rows[0] ?? null;
+}
+
+// =============================================
+// Tareas y recordatorios (Fase 7, ver plan-implementacion.md §1-bis)
+// =============================================
+
+export async function listTasksForTenant(
+  db: Db,
+  tenantId: string,
+  filters: { leadId?: string; dealId?: string; status?: "pending" | "done" } = {}
+) {
+  const conditions = [eq(tasks.tenantId, tenantId)];
+  if (filters.leadId) conditions.push(eq(tasks.leadId, filters.leadId));
+  if (filters.dealId) conditions.push(eq(tasks.dealId, filters.dealId));
+  if (filters.status) conditions.push(eq(tasks.status, filters.status));
+
+  return db
+    .select()
+    .from(tasks)
+    .where(and(...conditions))
+    .orderBy(tasks.dueAt);
+}
+
+export async function getTaskForTenant(db: Db, tenantId: string, taskId: string) {
+  const rows = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)));
+  return rows[0] ?? null;
+}
+
+export async function createTaskForTenant(db: Db, tenantId: string, input: CreateTaskInput) {
+  const [task] = await db
+    .insert(tasks)
+    .values({ id: crypto.randomUUID(), tenantId, ...input })
+    .returning();
+  return task;
+}
+
+export async function updateTaskForTenant(
+  db: Db,
+  tenantId: string,
+  taskId: string,
+  input: UpdateTaskInput
+) {
+  const existing = await getTaskForTenant(db, tenantId, taskId);
+  if (!existing) return null;
+  if (Object.keys(input).length === 0) return existing;
+
+  const [row] = await db
+    .update(tasks)
+    .set(input)
+    .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)))
+    .returning();
+
+  return row ?? null;
+}
+
+export async function deleteTaskForTenant(db: Db, tenantId: string, taskId: string) {
+  const existing = await getTaskForTenant(db, tenantId, taskId);
+  if (!existing) return false;
+
+  await db.delete(tasks).where(and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)));
+  return true;
+}
+
+/**
+ * Tareas pendientes con fecha de vencimiento en el pasado — usada por el
+ * handler de "tarea vencida" (ver app/api/cron/check-tasks/route.ts) y por el
+ * widget del Resumen. No filtra por `assigneeId`: cada endpoint decide a
+ * quién mostrárselo o notificarlo.
+ */
+export async function listOverdueTasksForTenant(db: Db, tenantId: string, asOf: Date = new Date()) {
+  const rows = await listTasksForTenant(db, tenantId, { status: "pending" });
+  return rows.filter((t) => t.dueAt && new Date(t.dueAt).getTime() <= asOf.getTime());
+}
+
+// =============================================
+// Notificaciones in-app (Fase 7)
+// =============================================
+
+export async function createNotificationForTenant(
+  db: Db,
+  tenantId: string,
+  userId: string,
+  type: "new_lead" | "visit_scheduled" | "task_due",
+  title: string,
+  body?: string,
+  link?: string
+) {
+  const [row] = await db
+    .insert(notifications)
+    .values({ id: crypto.randomUUID(), tenantId, userId, type, title, body, link })
+    .returning();
+  return row;
+}
+
+/** Crea una notificación idéntica para cada miembro del equipo del tenant. */
+export async function notifyTenantTeam(
+  db: Db,
+  tenantId: string,
+  type: "new_lead" | "visit_scheduled" | "task_due",
+  title: string,
+  body?: string,
+  link?: string
+) {
+  const team = await listTeamMembersForTenant(db, tenantId);
+  await Promise.all(
+    team.map((member) => createNotificationForTenant(db, tenantId, member.id, type, title, body, link))
+  );
+}
+
+export async function listNotificationsForUser(
+  db: Db,
+  tenantId: string,
+  userId: string,
+  limit = 20
+) {
+  return db
+    .select()
+    .from(notifications)
+    .where(and(eq(notifications.tenantId, tenantId), eq(notifications.userId, userId)))
+    .orderBy(desc(notifications.createdAt))
+    .limit(limit);
+}
+
+export async function countUnreadNotificationsForUser(db: Db, tenantId: string, userId: string) {
+  const rows = await db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.tenantId, tenantId),
+        eq(notifications.userId, userId),
+        eq(notifications.read, false)
+      )
+    );
+  return rows.length;
+}
+
+export async function markNotificationReadForUser(
+  db: Db,
+  tenantId: string,
+  userId: string,
+  notificationId: string
+) {
+  const [row] = await db
+    .update(notifications)
+    .set({ read: true })
+    .where(
+      and(
+        eq(notifications.id, notificationId),
+        eq(notifications.tenantId, tenantId),
+        eq(notifications.userId, userId)
+      )
+    )
+    .returning();
+  return row ?? null;
+}
+
+/** Evita notificar dos veces la misma tarea vencida en corridas sucesivas del cron. */
+export async function hasNotificationForLink(
+  db: Db,
+  tenantId: string,
+  userId: string,
+  link: string
+) {
+  const rows = await db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.tenantId, tenantId),
+        eq(notifications.userId, userId),
+        eq(notifications.link, link)
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function markAllNotificationsReadForUser(db: Db, tenantId: string, userId: string) {
+  await db
+    .update(notifications)
+    .set({ read: true })
+    .where(and(eq(notifications.tenantId, tenantId), eq(notifications.userId, userId)));
+}
+
+// =============================================
+// Reportes y comisiones (Fase 8, ver plan-implementacion.md §1-bis)
+// =============================================
+
+/**
+ * Comisión por deal `closed_won`: `dealValueCents * (commissionPercentage / 100)`
+ * de la propiedad asociada. Agrupado por asesor — los deals sin `advisorId`
+ * (como los sembrados en la demo antes de tener asignación real) caen en el
+ * grupo `null`, que la UI muestra como "Sin asesor asignado" en vez de
+ * inventar un nombre o romper el reporte.
+ */
+export async function getCommissionsReportForTenant(db: Db, tenantId: string) {
+  const rows = await db
+    .select({
+      dealId: deals.id,
+      dealValueCents: deals.dealValueCents,
+      advisorId: deals.advisorId,
+      advisorName: userTable.name,
+      commissionPercentage: properties.commissionPercentage,
+      closedAt: deals.updatedAt,
+    })
+    .from(deals)
+    .innerJoin(properties, eq(deals.propertyId, properties.id))
+    .leftJoin(userTable, eq(deals.advisorId, userTable.id))
+    .where(and(eq(deals.tenantId, tenantId), eq(deals.stage, "closed_won")));
+
+  const byAdvisor = new Map<
+    string,
+    { advisorId: string | null; advisorName: string | null; dealCount: number; commissionCents: number }
+  >();
+
+  for (const row of rows) {
+    const key = row.advisorId ?? "__sin_asesor__";
+    const commissionCents = Math.round(
+      (row.dealValueCents ?? 0) * ((row.commissionPercentage ?? 0) / 100)
+    );
+    const existing = byAdvisor.get(key);
+    if (existing) {
+      existing.dealCount += 1;
+      existing.commissionCents += commissionCents;
+    } else {
+      byAdvisor.set(key, {
+        advisorId: row.advisorId,
+        advisorName: row.advisorName,
+        dealCount: 1,
+        commissionCents,
+      });
+    }
+  }
+
+  return {
+    deals: rows,
+    byAdvisor: Array.from(byAdvisor.values()).sort((a, b) => b.commissionCents - a.commissionCents),
+    totalCommissionCents: rows.reduce(
+      (acc, r) => acc + Math.round((r.dealValueCents ?? 0) * ((r.commissionPercentage ?? 0) / 100)),
+      0
+    ),
+  };
+}
+
+/** Tasa de conversión por canal de origen del lead (website/whatsapp/referral/manual). */
+export async function getConversionBySourceForTenant(db: Db, tenantId: string) {
+  const allLeads = await db
+    .select({ id: leads.id, source: leads.source })
+    .from(leads)
+    .where(eq(leads.tenantId, tenantId));
+
+  const wonLeadIds = new Set(
+    (
+      await db
+        .select({ leadId: deals.leadId })
+        .from(deals)
+        .where(and(eq(deals.tenantId, tenantId), eq(deals.stage, "closed_won")))
+    ).map((d) => d.leadId)
+  );
+
+  const bySource = new Map<string, { source: string; total: number; won: number }>();
+  for (const lead of allLeads) {
+    const existing = bySource.get(lead.source);
+    const won = wonLeadIds.has(lead.id) ? 1 : 0;
+    if (existing) {
+      existing.total += 1;
+      existing.won += won;
+    } else {
+      bySource.set(lead.source, { source: lead.source, total: 1, won });
+    }
+  }
+
+  return Array.from(bySource.values()).map((s) => ({
+    ...s,
+    conversionRate: s.total > 0 ? Math.round((s.won / s.total) * 100) : 0,
+  }));
+}
+
+/**
+ * Velocidad de cierre real: días entre `createdAt` y `updatedAt` de cada deal
+ * `closed_won`. No hay una columna `closed_at` separada — `updatedAt` se
+ * actualiza automáticamente en cada `PATCH` (ver `timestamps` en `_shared.ts`),
+ * y el último cambio de un deal que terminó en `closed_won` es, en la
+ * práctica, el momento del cierre. Documentado como aproximación, no como
+ * dato exacto de auditoría.
+ */
+export async function getAverageClosingDaysForTenant(db: Db, tenantId: string) {
+  const rows = await db
+    .select({ createdAt: deals.createdAt, updatedAt: deals.updatedAt })
+    .from(deals)
+    .where(and(eq(deals.tenantId, tenantId), eq(deals.stage, "closed_won")));
+
+  if (rows.length === 0) return null;
+
+  const totalDays = rows.reduce((acc, r) => {
+    const days = (new Date(r.updatedAt).getTime() - new Date(r.createdAt).getTime()) / 86_400_000;
+    return acc + Math.max(0, days);
+  }, 0);
+
+  return Math.round((totalDays / rows.length) * 10) / 10;
+}
+
+/** Ranking de asesores por deals `closed_won`, de más a menos. */
+export async function getAdvisorRankingForTenant(db: Db, tenantId: string) {
+  const rows = await db
+    .select({
+      advisorId: deals.advisorId,
+      advisorName: userTable.name,
+      dealValueCents: deals.dealValueCents,
+    })
+    .from(deals)
+    .leftJoin(userTable, eq(deals.advisorId, userTable.id))
+    .where(and(eq(deals.tenantId, tenantId), eq(deals.stage, "closed_won")));
+
+  const byAdvisor = new Map<
+    string,
+    { advisorId: string | null; advisorName: string | null; dealCount: number; totalValueCents: number }
+  >();
+
+  for (const row of rows) {
+    const key = row.advisorId ?? "__sin_asesor__";
+    const existing = byAdvisor.get(key);
+    if (existing) {
+      existing.dealCount += 1;
+      existing.totalValueCents += row.dealValueCents ?? 0;
+    } else {
+      byAdvisor.set(key, {
+        advisorId: row.advisorId,
+        advisorName: row.advisorName,
+        dealCount: 1,
+        totalValueCents: row.dealValueCents ?? 0,
+      });
+    }
+  }
+
+  return Array.from(byAdvisor.values()).sort((a, b) => b.dealCount - a.dealCount);
+}
+
+// =============================================
+// Documentos y contratos (Fase 9, ver plan-implementacion.md §1-bis)
+// =============================================
+
+/**
+ * Registra la fila del documento ya subido a R2 (el `put` del objeto en sí
+ * vive en el route handler, que es quien tiene el archivo en memoria — ver
+ * app/api/documents/route.ts). Esta función solo valida que, si se pasó
+ * lead/deal/propiedad, pertenezcan al mismo tenant antes de guardar la
+ * referencia.
+ */
+export async function createDocumentForTenant(
+  db: Db,
+  tenantId: string,
+  input: {
+    leadId?: string;
+    dealId?: string;
+    propertyId?: string;
+    type: "contract" | "mandate" | "id_copy" | "other";
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+    storageKey: string;
+    uploadedBy?: string;
+  }
+) {
+  if (input.leadId && !(await getLeadForTenant(db, tenantId, input.leadId))) return null;
+  if (input.dealId && !(await getDealForTenant(db, tenantId, input.dealId))) return null;
+  if (input.propertyId && !(await getPropertyForTenant(db, tenantId, input.propertyId))) return null;
+
+  const [row] = await db
+    .insert(documents)
+    .values({ id: crypto.randomUUID(), tenantId, ...input })
+    .returning();
+  return row;
+}
+
+export async function listDocumentsForTenant(
+  db: Db,
+  tenantId: string,
+  filters: { leadId?: string; dealId?: string; propertyId?: string } = {}
+) {
+  const conditions = [eq(documents.tenantId, tenantId)];
+  if (filters.leadId) conditions.push(eq(documents.leadId, filters.leadId));
+  if (filters.dealId) conditions.push(eq(documents.dealId, filters.dealId));
+  if (filters.propertyId) conditions.push(eq(documents.propertyId, filters.propertyId));
+
+  return db
+    .select()
+    .from(documents)
+    .where(and(...conditions))
+    .orderBy(desc(documents.createdAt));
+}
+
+export async function getDocumentForTenant(db: Db, tenantId: string, documentId: string) {
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(and(eq(documents.id, documentId), eq(documents.tenantId, tenantId)));
+  return rows[0] ?? null;
+}
+
+export async function deleteDocumentForTenant(db: Db, tenantId: string, documentId: string) {
+  const existing = await getDocumentForTenant(db, tenantId, documentId);
+  if (!existing) return null;
+
+  await db.delete(documents).where(and(eq(documents.id, documentId), eq(documents.tenantId, tenantId)));
+  return existing;
+}
+
+// =============================================
+// Calendario y sincronización con Google Calendar (Fase 10, ver
+// plan-implementacion.md §1-bis)
+// =============================================
+
+export async function getGoogleCalendarConnectionForUser(db: Db, tenantId: string, userId: string) {
+  const rows = await db
+    .select()
+    .from(googleCalendarConnections)
+    .where(
+      and(
+        eq(googleCalendarConnections.tenantId, tenantId),
+        eq(googleCalendarConnections.userId, userId)
+      )
+    );
+  return rows[0] ?? null;
+}
+
+export async function saveGoogleCalendarConnectionForUser(
+  db: Db,
+  tenantId: string,
+  userId: string,
+  input: { accessTokenEnc: string; refreshTokenEnc: string; expiresAt: string; calendarId?: string }
+) {
+  const existing = await getGoogleCalendarConnectionForUser(db, tenantId, userId);
+  if (!existing) {
+    const [row] = await db
+      .insert(googleCalendarConnections)
+      .values({ id: crypto.randomUUID(), tenantId, userId, ...input })
+      .returning();
+    return row;
+  }
+
+  const [row] = await db
+    .update(googleCalendarConnections)
+    .set(input)
+    .where(eq(googleCalendarConnections.userId, userId))
+    .returning();
+  return row ?? existing;
+}
+
+export async function deleteGoogleCalendarConnectionForUser(db: Db, tenantId: string, userId: string) {
+  await db
+    .delete(googleCalendarConnections)
+    .where(
+      and(
+        eq(googleCalendarConnections.tenantId, tenantId),
+        eq(googleCalendarConnections.userId, userId)
+      )
+    );
+}
+
+// =============================================
+// Matching inteligente lead ↔ propiedad (Fase 11, ver plan-implementacion.md
+// §1-bis)
+// =============================================
+
+/**
+ * Sugiere propiedades activas y publicadas del tenant que calzan con las
+ * preferencias del lead (ciudad, tipo, operación, presupuesto). Si el lead no
+ * tiene ninguna preferencia capturada, devuelve una lista vacía en vez de
+ * sugerir al azar — sugerir sin criterio sería peor que no sugerir nada.
+ */
+export async function getMatchingPropertiesForLead(db: Db, tenantId: string, leadId: string) {
+  const lead = await getLeadForTenant(db, tenantId, leadId);
+  if (!lead) return [];
+
+  const hasPreferences =
+    lead.preferredCity || lead.preferredType || lead.preferredOperation || lead.budgetMinCents || lead.budgetMaxCents;
+  if (!hasPreferences) return [];
+
+  const { properties: activeProperties } = await listPropertiesForTenant(db, tenantId, {
+    status: "active",
+    limit: 500,
+  });
+
+  return activeProperties
+    .filter((p) => {
+      if (lead.preferredType && p.type !== lead.preferredType) return false;
+      if (
+        lead.preferredOperation &&
+        p.operation !== lead.preferredOperation &&
+        p.operation !== "sale_rent" &&
+        lead.preferredOperation !== "sale_rent"
+      ) {
+        return false;
+      }
+      if (
+        lead.preferredCity &&
+        !(p.city ?? "").toLowerCase().includes(lead.preferredCity.toLowerCase())
+      ) {
+        return false;
+      }
+      if (lead.budgetMaxCents && p.priceCents > lead.budgetMaxCents) return false;
+      if (lead.budgetMinCents && p.priceCents < lead.budgetMinCents) return false;
+      return true;
+    })
+    .slice(0, 6);
 }

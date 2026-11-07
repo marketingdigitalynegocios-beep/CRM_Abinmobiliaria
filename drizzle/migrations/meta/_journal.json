@@ -8,6 +8,55 @@
       "when": 1794052459438,
       "tag": "0000_minor_shotgun",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794082111140,
+      "tag": "0001_violet_silver_sable",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794082527404,
+      "tag": "0002_optimal_donald_blake",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794083569962,
+      "tag": "0003_perpetual_changeling",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794083961323,
+      "tag": "0004_handy_daredevil",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794084296179,
+      "tag": "0005_clear_the_enforcers",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794084661969,
+      "tag": "0006_pretty_black_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794084922177,
+      "tag": "0007_faulty_toad_men",
+      "breakpoints": true
     }
   ]
 }

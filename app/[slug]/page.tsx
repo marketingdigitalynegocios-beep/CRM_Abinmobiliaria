@@ -2,11 +2,16 @@ import { env } from "cloudflare:workers";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db/client";
-import { getTenantBySlug, listPublishedPropertiesForTenant } from "@/lib/db/tenant-scope";
+import {
+  getTenantBySlug,
+  listPublishedPropertiesForTenant,
+  listPublishedReviewsForTenant,
+} from "@/lib/db/tenant-scope";
 import { buildImageUrl } from "@/lib/images/delivery-url";
 import { AgencyHeader } from "@/components/public/AgencyHeader";
 import { PropertyFilters } from "@/components/public/PropertyFilters";
 import { PropertyGrid } from "@/components/public/PropertyGrid";
+import { ReviewsSection } from "@/components/public/ReviewsSection";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -46,11 +51,14 @@ export default async function AgencyPublicPage({ params, searchParams }: PagePro
   const tenant = await getTenantBySlug(db, slug);
   if (!tenant) notFound();
 
-  const { properties, total } = await listPublishedPropertiesForTenant(db, tenant.id, {
-    type,
-    operation,
-    page: page ? Number(page) : 1,
-  });
+  const [{ properties, total }, reviews] = await Promise.all([
+    listPublishedPropertiesForTenant(db, tenant.id, {
+      type,
+      operation,
+      page: page ? Number(page) : 1,
+    }),
+    listPublishedReviewsForTenant(db, tenant.id),
+  ]);
 
   return (
     <div className={`min-h-screen ${tenant.template === "minimal" ? "bg-white" : "bg-light-gray"}`}>
@@ -64,6 +72,8 @@ export default async function AgencyPublicPage({ params, searchParams }: PagePro
         <p className="mb-4 text-sm text-gray">{total} propiedades</p>
 
         <PropertyGrid properties={properties} template={tenant.template} tenantSlug={slug} />
+
+        <ReviewsSection reviews={reviews} />
       </main>
     </div>
   );

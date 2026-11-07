@@ -15,6 +15,12 @@ export default defineConfig({
       ASSETS: bindings.assets(),
       IMAGES: bindings.images(),
       DB: bindings.d1({ name: "saas-inmobiliario-db" }),
+      // Documentos/contratos (Fase 9, ver plan-implementacion.md §1-bis) — no
+      // son imágenes a transformar, así que van en R2 en vez de Cloudflare
+      // Images. Nunca se exponen con una URL pública directa del bucket: se
+      // sirven streameados desde `GET /api/documents/[id]/download`, que valida
+      // que el documento pertenece al tenant de la sesión antes de leerlo.
+      DOCUMENTS: bindings.r2({ name: "saas-inmobiliario-documents" }),
 
       // Config de runtime del Worker (no hay un binding "var" plano en `cf`
       // todavía — `bindings.secret()` es el mecanismo genérico encontrado para
@@ -38,6 +44,13 @@ export default defineConfig({
       CLOUDFLARE_IMAGES_API_TOKEN: bindings.secret(),
       CLOUDFLARE_ACCOUNT_ID: bindings.secret(),
       TURNSTILE_SECRET_KEY: bindings.secret(),
+
+      // Sincronización con Google Calendar por asesor (Fase 10, ver
+      // plan-implementacion.md §1-bis) — credenciales OAuth2 de un proyecto en
+      // Google Cloud Console, pendientes de que el usuario las genere (mismo
+      // patrón de bloqueo externo que Meta/Gemini en la Fase 4).
+      GOOGLE_CLIENT_ID: bindings.secret(),
+      GOOGLE_CLIENT_SECRET: bindings.secret(),
     },
   }),
 });

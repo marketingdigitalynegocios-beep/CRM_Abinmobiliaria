@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const leadStageSchema = z.enum(["new", "contacted", "disqualified"]);
 export const leadSourceSchema = z.enum(["website", "whatsapp", "referral", "manual"]);
+export const leadPreferredTypeSchema = z.enum(["apartment", "house", "commercial", "land"]);
+export const leadPreferredOperationSchema = z.enum(["sale", "rent", "sale_rent"]);
 
 /**
  * Body de `POST /api/leads` (ver blueprint §7) — pública, protegida con
@@ -28,6 +30,9 @@ export const createManualLeadSchema = z.object({
   notes: z.string().max(2000).optional(),
   budgetMinCents: z.number().int().nonnegative().optional(),
   budgetMaxCents: z.number().int().nonnegative().optional(),
+  preferredCity: z.string().max(120).optional(),
+  preferredType: leadPreferredTypeSchema.optional(),
+  preferredOperation: leadPreferredOperationSchema.optional(),
 });
 
 export const updateLeadSchema = z.object({
@@ -36,6 +41,9 @@ export const updateLeadSchema = z.object({
   notes: z.string().max(2000).optional(),
   budgetMinCents: z.number().int().nonnegative().optional(),
   budgetMaxCents: z.number().int().nonnegative().optional(),
+  preferredCity: z.string().max(120).optional(),
+  preferredType: leadPreferredTypeSchema.optional(),
+  preferredOperation: leadPreferredOperationSchema.optional(),
 });
 
 export type CreateLeadInput = z.infer<typeof createLeadSchema>;
