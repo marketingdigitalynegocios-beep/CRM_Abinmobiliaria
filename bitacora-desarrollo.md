@@ -312,3 +312,20 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 - Todo lo de hoy se probó por `curl`, no haciendo clic en el navegador (mismo pendiente que la Fase 1).
 
 **Próximo paso:** pasada manual desde el navegador de las Fases 1 y 2 juntas, y después decidir entre aprovisionar Cloudflare real o intentar arrancar la Fase 3 (agente de WhatsApp) — que sigue bloqueada por los riesgos 10 y 11 del blueprint (duración del token, estrategia de message templates).
+
+---
+
+### 2026-11-07 — Reordenamiento de fases: WhatsApp pasa al final
+
+**Quién:** sesión de planeación con Claude
+**Fase:** — (ajuste de plan, no de código)
+
+**Qué se hizo:**
+- A pedido del usuario, se reordenó `plan-implementacion.md`: el agente de WhatsApp deja de ser la Fase 3 y pasa a ser la Fase 4, justo antes del pulido final. Billing (antes Fase 4) pasa a ser la Fase 3.
+- Orden actualizado: Fase 0 (Fundaciones) → Fase 1 (Inventario) → Fase 2 (CRM) → **Fase 3 (Billing)** → **Fase 4 (WhatsApp)** → Fase 5 (Pulido para "Done").
+
+**Decisión tomada:**
+- Decisión: mover WhatsApp al final, justo antes de Pulido.
+  **Por qué:** sigue siendo la única fase bloqueada por algo externo (riesgos 10 y 11: duración del token, estrategia de message templates — pendientes de confirmar con la app Tech Provider existente), y no tiene ninguna dependencia hacia ni desde Billing. No hay razón para dejarla a mitad de camino bloqueando nada; mejor dejarla de última para no interrumpir el impulso en las fases que sí se pueden construir de punta a punta ahora mismo.
+
+**Sin cambios de código en esta entrada** — solo reordenamiento del plan.

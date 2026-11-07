@@ -15,10 +15,10 @@ Hay 4 cosas del blueprint que bloquean el arranque y deben resolverse primero (s
 | 1 | ~~Compatibilidad de vinext~~ — **RESUELTO 2026-11-06:** `create-vinext-app` funciona y el build de producción corre sin errores | — | — |
 | 5 | Confirmar versión de Node en la máquina/CI que vaya a correr comandos de `cf` (crear D1, secrets, deploy): `cf@1.0.0-beta.28` pide `^22.23.0 \| ^24.22.0 \| ^26.12.0`, y el entorno de prueba tenía v24.12.0 (por debajo del mínimo) | Comandos de `cf` podrían fallar o comportarse distinto si Node no cumple el rango | — |
 | 2 | Plan de Cloudflare que habilita Cloudflare Images y su costo | Si no se confirma, el módulo de fotos (Fase 1) no tiene dónde apoyarse | — |
-| 3 | Con la app Tech Provider ya existente: ¿el token de WhatsApp Cloud API por tenant es de larga duración o hay que convertirlo a token de usuario de sistema? | Si no se resuelve, el agente de WhatsApp (Fase 3) deja de responder cuando el token expira, en silencio | — |
+| 3 | Con la app Tech Provider ya existente: ¿el token de WhatsApp Cloud API por tenant es de larga duración o hay que convertirlo a token de usuario de sistema? | Si no se resuelve, el agente de WhatsApp (Fase 4) deja de responder cuando el token expira, en silencio | — |
 | 4 | Estrategia de *message templates* para la ventana de 24h de Meta | Sin esto, cualquier mensaje proactivo del agente fuera de la ventana de 24h simplemente falla | — |
 
-**Regla:** no se empieza la Fase 3 (WhatsApp) sin tener 3 y 4 resueltos y anotados en `bitacora-desarrollo.md`. Las fases 0, 1 y 2 no dependen de esto y pueden avanzar en paralelo a esa confirmación.
+**Regla:** no se empieza la Fase 4 (WhatsApp) sin tener 3 y 4 resueltos y anotados en `bitacora-desarrollo.md`. Las fases 0, 1, 2 y 3 no dependen de esto y pueden avanzar en paralelo a esa confirmación.
 
 ---
 
@@ -62,19 +62,21 @@ Hay 4 cosas del blueprint que bloquean el arranque y deben resolverse primero (s
 
 **Criterio de salida:** un lead entra por el formulario público, el admin lo califica, abre un deal sobre una propiedad, lo mueve en el kanban y agenda una visita — todo sin intervención manual en la base de datos.
 
-### Fase 3 — Agente de WhatsApp (gate: ver sección 0)
+### Fase 3 — Billing
+- [ ] Widget Wompi + `POST /api/webhooks/wompi` (validación HMAC con Web Crypto)
+- [ ] Gating de funcionalidades por `subscriptions.plan`/`status`
+
+**Criterio de salida:** un pago en sandbox de Wompi actualiza `subscriptions` end-to-end.
+
+### Fase 4 — Agente de WhatsApp (gate: ver sección 0)
+> **Reordenada (2026-11-07):** va de última antes del pulido final, no justo después del CRM. Sigue bloqueada por los riesgos 10 y 11 del blueprint (duración del token, estrategia de *message templates*) y no tiene nada más que la retenga — Billing no depende de ella ni ella de Billing.
+
 - [ ] Botón "Conectar WhatsApp" (Embedded Signup) + `POST /api/whatsapp/connect`
 - [ ] Webhook `GET/POST /api/webhooks/whatsapp` (verificación + firma + enrutamiento por `phone_number_id`)
 - [ ] Integración Gemini (contexto de propiedades activas + respuesta)
 - [ ] Definir y dejar aprobados ante Meta al menos los *message templates* necesarios para el `welcome_message`
 
 **Criterio de salida:** un mensaje real de WhatsApp a un número conectado en modo prueba recibe respuesta del agente con información de propiedades reales del tenant.
-
-### Fase 4 — Billing
-- [ ] Widget Wompi + `POST /api/webhooks/wompi` (validación HMAC con Web Crypto)
-- [ ] Gating de funcionalidades por `subscriptions.plan`/`status`
-
-**Criterio de salida:** un pago en sandbox de Wompi actualiza `subscriptions` end-to-end.
 
 ### Fase 5 — Pulido para "Done"
 - [ ] Meta tags SEO en páginas públicas (`title`, `description`, `og:image`, `og:title`)
@@ -83,7 +85,7 @@ Hay 4 cosas del blueprint que bloquean el arranque y deben resolverse primero (s
 - [ ] Revisar que los 13 puntos de la sección 15 del blueprint estén resueltos o explícitamente diferidos con nota
 - [ ] Pasar `blueprint-saas-inmobiliario.md` y este plan de `BORRADOR` a `APROBADO`
 
-> Wompi (Fase 4) no tiene dependencias de las fases 1–3 más allá de tener tenants/usuarios creados; si se necesita validar pricing con un cliente piloto antes, se puede adelantar justo después de la Fase 0.
+> Wompi (Fase 3) no tiene dependencias de las fases 1–2 más allá de tener tenants/usuarios creados.
 
 ---
 
