@@ -355,3 +355,21 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 - Sigue pendiente el paso manual recurrente: cada WABA nuevo que se conecte necesita asignarse a mano al usuario de sistema en Business Manager — no es un bloqueador, es una tarea operativa de cada conexión (documentada en el blueprint §11).
 
 **Próximo paso:** la Fase 4 ya no tiene nada externo pendiente para arrancar cuando le toque el turno (sigue de última en el orden, por decisión del usuario). Seguir con la Fase 3 (Billing) o con el aprovisionamiento real de Cloudflare / la pasada manual en el navegador, según lo que decida el usuario.
+
+---
+
+### 2026-11-07 — Billing diferido: el uso real hoy es interno, de una sola empresa
+
+**Quién:** sesión de planeación con Claude
+**Fase:** — (ajuste de plan, no de código)
+
+**Qué se hizo:**
+- El usuario aclaró que el CRM se va a usar primero para su propia empresa (un solo tenant), no como SaaS cobrado a otras inmobiliarias todavía — Billing no resuelve nada en ese escenario.
+- Se reordenó `plan-implementacion.md`: Billing pasa de Fase 3 a **Fase 5, marcada explícitamente como DIFERIDA (no bloqueante)**. Pulido para "Done" pasa a ser la Fase 3 (siguiente fase activa). El orden completo queda: Fase 0 (Fundaciones) → Fase 1 (Inventario) → Fase 2 (CRM) → **Fase 3 (Pulido)** → Fase 4 (WhatsApp) → **Fase 5 (Billing, diferida)**.
+- Se ajustó el criterio de QA de la Fase 3 (Pulido): el criterio #12 del blueprint (cobro con Wompi) se marca como "no aplicable mientras el uso sea interno", no como incumplido — para no bloquear falsamente el QA end-to-end por algo que el negocio todavía no necesita.
+
+**Decisión tomada:**
+- Decisión: no borrar Billing del plan, dejarlo diseñado y diferido en vez de descartarlo.
+  **Por qué:** la arquitectura multitenant (D1 + `tenant_id` en todo, tabla `subscriptions` ya en el schema desde la Fase 0) no cuesta nada extra por tenerla construida ahora. Si en algún momento deciden vender esto a otras inmobiliarias, el cobro se agrega sin rediseñar nada del resto del sistema — dejar la puerta abierta sale gratis, cerrarla de una vez no.
+
+**Próximo paso:** arrancar la Fase 3 (Pulido para "Done": SEO, invitación de asesores, `/dashboard/settings/agency`, QA end-to-end) cuando el usuario lo indique.

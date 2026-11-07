@@ -60,16 +60,19 @@ De las 5 cosas que bloqueaban el arranque, quedan 2 abiertas (ver bitacora-desar
 
 **Nota de alcance:** las notificaciones por Resend (nuevo lead, visita confirmada) se dejaron fuera de esta pasada — no bloquean el criterio de salida tal como está escrito, y Resend ya está instalado como dependencia desde la Fase 1 pero sin una API key real para probarlo en vivo. Se puede agregar como una mejora incremental sin tocar el resto del CRM.
 
-**Criterio de salida:** un lead entra por el formulario público, el admin lo califica, abre un deal sobre una propiedad, lo mueve en el kanban y agenda una visita — todo sin intervención manual en la base de datos.
+### Fase 3 — Pulido para "Done"
+> **Reordenada (2026-11-07):** pasa a ser la siguiente fase activa. El uso real hoy es **interno, de una sola inmobiliaria** (no un SaaS multitenant vendido a terceros todavía), así que Billing deja de ser lo que sigue — ver Fase 5 más abajo.
 
-### Fase 3 — Billing
-- [ ] Widget Wompi + `POST /api/webhooks/wompi` (validación HMAC con Web Crypto)
-- [ ] Gating de funcionalidades por `subscriptions.plan`/`status`
+- [ ] Meta tags SEO en páginas públicas (`title`, `description`, `og:image`, `og:title`)
+- [ ] Invitación de asesores (`/dashboard/settings/team`) sobre el flujo de invitación de Better Auth
+- [ ] `/dashboard/settings/agency` (editar logo/colores/slug del tenant ya creado — quedó pendiente de la Fase 1)
+- [ ] QA end-to-end contra los 15 criterios de done del blueprint (§13) — **el criterio #12 sobre Wompi se marca como no aplicable mientras el uso sea interno**, no como incumplido
+- [ ] Revisar que los 13 puntos de la sección 15 del blueprint estén resueltos o explícitamente diferidos con nota
 
-**Criterio de salida:** un pago en sandbox de Wompi actualiza `subscriptions` end-to-end.
+**Criterio de salida:** la página pública tiene SEO correcto, el admin puede invitar asesores y editar los datos de su inmobiliaria, y el MVP pasa el QA end-to-end salvo Billing (diferido, ver Fase 5).
 
 ### Fase 4 — Agente de WhatsApp
-> **Reordenada (2026-11-07):** va de última antes del pulido final, no justo después del CRM — Billing no depende de ella ni ella de Billing. **Ya no está bloqueada** (ver §0): se resolvió el diseño del token (System User Token único, `META_SYSTEM_USER_TOKEN`) y de la ventana de 24h (el MVP solo responde, nunca escribe primero) auditando una integración Tech Provider propia ya en producción.
+> Va de última antes de Billing. **Ya no está bloqueada** (ver §0): se resolvió el diseño del token (System User Token único, `META_SYSTEM_USER_TOKEN`) y de la ventana de 24h (el MVP solo responde, nunca escribe primero) auditando una integración Tech Provider propia ya en producción.
 
 - [ ] Generar a mano el System User Token en Meta Business Manager (usuario de sistema Admin, permisos `whatsapp_business_management`/`whatsapp_business_messaging`) y cargarlo como `META_SYSTEM_USER_TOKEN`
 - [ ] Botón "Conectar WhatsApp" (Embedded Signup) + `POST /api/whatsapp/connect` — solo para obtener `waba_id`/`phone_number_id`, no para guardar un token por tenant (ver blueprint §11)
@@ -79,14 +82,17 @@ De las 5 cosas que bloqueaban el arranque, quedan 2 abiertas (ver bitacora-desar
 
 **Criterio de salida:** un mensaje real de WhatsApp a un número conectado en modo prueba recibe respuesta del agente con información de propiedades reales del tenant.
 
-### Fase 5 — Pulido para "Done"
-- [ ] Meta tags SEO en páginas públicas (`title`, `description`, `og:image`, `og:title`)
-- [ ] Invitación de asesores (`/dashboard/settings/team`) sobre el flujo de invitación de Better Auth
-- [ ] QA end-to-end contra los 15 criterios de done del blueprint (§13)
-- [ ] Revisar que los 13 puntos de la sección 15 del blueprint estén resueltos o explícitamente diferidos con nota
-- [ ] Pasar `blueprint-saas-inmobiliario.md` y este plan de `BORRADOR` a `APROBADO`
+### Fase 5 — Billing (DIFERIDA, no bloqueante)
+> **Diferida (2026-11-07) a pedido del usuario:** el CRM se va a usar primero para la propia empresa (un solo tenant), no como SaaS cobrado a otras inmobiliarias todavía. Cobrar una suscripción no resuelve nada en ese escenario. Se deja el diseño documentado (Wompi, tabla `subscriptions` ya en el schema desde la Fase 0) para no tener que rediseñar nada si más adelante se decide vender esto a otras inmobiliarias — la arquitectura multitenant ya está puesta, agregar el cobro no toca el resto del sistema.
 
-> Wompi (Fase 3) no tiene dependencias de las fases 1–2 más allá de tener tenants/usuarios creados.
+- [ ] Widget Wompi + `POST /api/webhooks/wompi` (validación HMAC con Web Crypto)
+- [ ] Gating de funcionalidades por `subscriptions.plan`/`status`
+
+**Criterio de salida (cuando se retome):** un pago en sandbox de Wompi actualiza `subscriptions` end-to-end.
+
+> Wompi no tiene dependencias de las fases 1–4 más allá de tener tenants/usuarios creados — se puede retomar en cualquier momento sin reabrir nada de lo ya construido.
+
+> **Pendiente final, una vez se retome o se decida descartar Billing de forma definitiva:** pasar `blueprint-saas-inmobiliario.md` y este plan de `BORRADOR` a `APROBADO`.
 
 ---
 
