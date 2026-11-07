@@ -1,3 +1,7 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Resumen" };
+
 export default function DashboardHomePage() {
   return (
     <div>

@@ -11,7 +11,7 @@ import {
 
 const inputClass =
   "w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary";
-const labelClass = "mb-1 block text-sm font-medium text-slate-700";
+const labelClass = "mb-1 block text-sm font-medium text-dark";
 const errorClass = "mt-1 text-xs text-danger";
 
 interface PropertyOwnerFormProps {

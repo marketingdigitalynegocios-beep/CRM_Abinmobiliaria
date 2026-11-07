@@ -63,9 +63,11 @@ De las 5 cosas que bloqueaban el arranque, quedan 2 abiertas (ver bitacora-desar
 ### Fase 3 — Pulido para "Done"
 > **Reordenada (2026-11-07):** pasa a ser la siguiente fase activa. El uso real hoy es **interno, de una sola inmobiliaria** (no un SaaS multitenant vendido a terceros todavía), así que Billing deja de ser lo que sigue — ver Fase 5 más abajo.
 
-- [ ] Meta tags SEO en páginas públicas (`title`, `description`, `og:image`, `og:title`)
+- [x] Diseño/UX básico: fuentes Inter/Urbanist cargadas de verdad (antes declaradas en CSS pero nunca importadas), `<title>`/`lang="es"` reales en vez del placeholder del scaffold, títulos por página en el dashboard, limpieza de clases `slate-*` sueltas a los tokens del blueprint §12 (2026-11-07) — **verificado en vivo**
+- [x] Los 3 templates de página pública (`modern`/`classic`/`minimal`, blueprint §12) con selector en `/dashboard/website` (incluye preview por iframe) — **verificado en vivo**: se registró un tenant, se cambió de template y se confirmó que el catálogo y el detalle público cambian de diseño en cada uno (2026-11-07)
+- [x] `/dashboard/settings/agency` (editar nombre/logo/colores/contacto/descripción del tenant ya creado — quedó pendiente de la Fase 1) + `GET/PATCH /api/agency` (solo admin) — **verificado en vivo** (2026-11-07)
+- [ ] Meta tags SEO en páginas públicas (`title`, `description`, `og:image`, `og:title`) — el detalle de propiedad ya tiene `generateMetadata` con Open Graph desde la Fase 1; falta revisar el catálogo y la landing del SaaS (`app/page.tsx`, todavía el placeholder del scaffold)
 - [ ] Invitación de asesores (`/dashboard/settings/team`) sobre el flujo de invitación de Better Auth
-- [ ] `/dashboard/settings/agency` (editar logo/colores/slug del tenant ya creado — quedó pendiente de la Fase 1)
 - [ ] QA end-to-end contra los 15 criterios de done del blueprint (§13) — **el criterio #12 sobre Wompi se marca como no aplicable mientras el uso sea interno**, no como incumplido
 - [ ] Revisar que los 13 puntos de la sección 15 del blueprint estén resueltos o explícitamente diferidos con nota
 

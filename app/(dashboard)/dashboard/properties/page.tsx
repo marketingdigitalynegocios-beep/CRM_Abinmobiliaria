@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { env } from "cloudflare:workers";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -5,6 +6,8 @@ import { requireSession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { listPropertiesForTenant } from "@/lib/db/tenant-scope";
 import { PropertiesTable } from "@/components/properties/PropertiesTable";
+
+export const metadata: Metadata = { title: "Propiedades" };
 
 export default async function PropertiesPage() {
   const session = await requireSession(await headers());

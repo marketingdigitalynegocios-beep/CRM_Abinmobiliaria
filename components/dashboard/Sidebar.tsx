@@ -10,6 +10,8 @@ const links = [
   { href: "/dashboard/properties/owners", label: "Propietarios" },
   { href: "/dashboard/crm", label: "Oportunidades" },
   { href: "/dashboard/crm/contacts", label: "Contactos" },
+  { href: "/dashboard/website", label: "Mi página pública" },
+  { href: "/dashboard/settings/agency", label: "Mi inmobiliaria" },
 ];
 
 export function Sidebar() {

@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/session";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
+
+export const metadata: Metadata = { title: { default: "Dashboard", template: "%s · Dashboard" } };
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession(await headers());

@@ -32,18 +32,25 @@ export interface PublicPropertySummary {
 export function PropertyCard({
   tenantSlug,
   property,
+  bleed = false,
 }: {
   tenantSlug: string;
   property: PublicPropertySummary;
+  /** Template "minimal" (ver blueprint §12): sin borde ni esquinas redondeadas, foto a sangre. */
+  bleed?: boolean;
 }) {
   const imageUrl = buildImageUrl(property.coverImageId, "public");
 
   return (
     <a
-      className="group overflow-hidden rounded-lg border border-border bg-white transition hover:shadow-md"
+      className={
+        bleed
+          ? "group overflow-hidden bg-white transition"
+          : "group overflow-hidden rounded-lg border border-border bg-white transition hover:shadow-md"
+      }
       href={`/${tenantSlug}/property/${property.id}`}
     >
-      <div className="relative aspect-[4/3] bg-light-gray">
+      <div className={`relative ${bleed ? "aspect-[3/2]" : "aspect-[4/3]"} bg-light-gray`}>
         {imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -60,18 +67,18 @@ export function PropertyCard({
           </span>
         )}
       </div>
-      <div className="p-4">
+      <div className={bleed ? "py-4" : "p-4"}>
         <p className="text-xs font-medium uppercase tracking-wide text-primary">
           {operationLabels[property.operation] ?? property.operation}
         </p>
-        <h3 className="mt-1 truncate font-display text-lg font-semibold text-dark">
+        <h3 className={`mt-1 truncate font-display font-semibold text-dark ${bleed ? "text-2xl" : "text-lg"}`}>
           {property.title}
         </h3>
         <p className="text-sm text-gray">
           {typeLabels[property.type] ?? property.type}
           {property.city ? ` · ${property.city}` : ""}
         </p>
-        <p className="mt-2 text-lg font-semibold text-dark">
+        <p className={`mt-2 font-semibold text-dark ${bleed ? "text-xl" : "text-lg"}`}>
           ${(property.priceCents / 100).toLocaleString("es-CO")} {property.currency}
         </p>
         <div className="mt-2 flex gap-3 text-xs text-gray">

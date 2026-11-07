@@ -39,7 +39,7 @@ export default async function AgencyPublicPage({ params, searchParams }: PagePro
   });
 
   return (
-    <div className="min-h-screen bg-light-gray">
+    <div className={`min-h-screen ${tenant.template === "minimal" ? "bg-white" : "bg-light-gray"}`}>
       <AgencyHeader tenant={tenant} />
 
       <main className="mx-auto max-w-6xl px-6 py-8">
@@ -49,7 +49,7 @@ export default async function AgencyPublicPage({ params, searchParams }: PagePro
 
         <p className="mb-4 text-sm text-gray">{total} propiedades</p>
 
-        <PropertyGrid properties={properties} tenantSlug={slug} />
+        <PropertyGrid properties={properties} template={tenant.template} tenantSlug={slug} />
       </main>
     </div>
   );

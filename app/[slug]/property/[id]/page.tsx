@@ -67,7 +67,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
   const whatsappMessage = `Hola, estoy interesado/a en "${property.title}" que vi en su página.`;
 
   return (
-    <div className="min-h-screen bg-light-gray">
+    <div className={`min-h-screen ${tenant.template === "minimal" ? "bg-white" : "bg-light-gray"}`}>
       <AgencyHeader tenant={tenant} />
 
       <main className="mx-auto max-w-4xl px-6 py-8">
@@ -97,7 +97,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
         </div>
 
         {property.description && (
-          <p className="mt-6 whitespace-pre-line text-sm leading-6 text-slate-700">
+          <p className="mt-6 whitespace-pre-line text-sm leading-6 text-dark">
             {property.description}
           </p>
         )}

@@ -51,7 +51,7 @@ export default async function LeadDetailPage({
         {lead.email ?? "—"} · {lead.phone ?? "—"} · origen: {lead.source}
       </p>
 
-      {lead.notes && <p className="mt-3 text-sm text-slate-700">{lead.notes}</p>}
+      {lead.notes && <p className="mt-3 text-sm text-dark">{lead.notes}</p>}
 
       <section className="mt-8">
         <h2 className="font-display text-lg font-semibold text-dark">Propiedades de interés</h2>

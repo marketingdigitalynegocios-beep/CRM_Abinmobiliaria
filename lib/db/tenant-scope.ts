@@ -544,6 +544,39 @@ export async function getTenantBySlug(db: Db, slug: string) {
   return rows[0] ?? null;
 }
 
+// =============================================
+// Perfil de la inmobiliaria (Fase 3 — /dashboard/settings/agency, /dashboard/website)
+// =============================================
+
+export async function getTenantForTenant(db: Db, tenantId: string) {
+  const rows = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateTenantForTenant(
+  db: Db,
+  tenantId: string,
+  input: Partial<{
+    name: string;
+    logoImageId: string;
+    phone: string;
+    email: string;
+    city: string;
+    address: string;
+    website: string;
+    primaryColor: string;
+    template: "modern" | "classic" | "minimal";
+    whatsappNumber: string;
+    description: string;
+  }>
+) {
+  if (Object.keys(input).length === 0) return getTenantForTenant(db, tenantId);
+
+  const [row] = await db.update(tenants).set(input).where(eq(tenants.id, tenantId)).returning();
+
+  return row ?? null;
+}
+
 export interface PublicPropertyFilters {
   type?: string;
   operation?: string;

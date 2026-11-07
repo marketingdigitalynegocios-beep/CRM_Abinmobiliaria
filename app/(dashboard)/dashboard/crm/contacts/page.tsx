@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { env } from "cloudflare:workers";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -6,6 +7,8 @@ import { getDb } from "@/lib/db/client";
 import { getLeadsForTenant } from "@/lib/db/tenant-scope";
 import { LeadsTable } from "@/components/crm/LeadsTable";
 import { NewContactForm } from "@/components/crm/NewContactForm";
+
+export const metadata: Metadata = { title: "Contactos" };
 
 export default async function ContactsPage() {
   const session = await requireSession(await headers());

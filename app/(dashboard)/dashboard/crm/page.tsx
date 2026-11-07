@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { env } from "cloudflare:workers";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -5,6 +6,8 @@ import { requireSession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { listDealsWithContextForTenant } from "@/lib/db/tenant-scope";
 import { KanbanBoard } from "@/components/crm/KanbanBoard";
+
+export const metadata: Metadata = { title: "Oportunidades" };
 
 export default async function CrmKanbanPage() {
   const session = await requireSession(await headers());

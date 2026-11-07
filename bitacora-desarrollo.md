@@ -373,3 +373,34 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
   **Por qué:** la arquitectura multitenant (D1 + `tenant_id` en todo, tabla `subscriptions` ya en el schema desde la Fase 0) no cuesta nada extra por tenerla construida ahora. Si en algún momento deciden vender esto a otras inmobiliarias, el cobro se agrega sin rediseñar nada del resto del sistema — dejar la puerta abierta sale gratis, cerrarla de una vez no.
 
 **Próximo paso:** arrancar la Fase 3 (Pulido para "Done": SEO, invitación de asesores, `/dashboard/settings/agency`, QA end-to-end) cuando el usuario lo indique.
+
+---
+
+### 2026-11-07 — Fase 3, primera tanda: diseño/UX básico + los 3 templates de página pública
+
+**Quién:** sesión de planeación con Claude
+**Fase:** 3
+
+**Qué se hizo:**
+- El usuario señaló, con razón, que no había ningún trabajo real de diseño/UX hecho todavía — se verificó y era cierto en tres frentes concretos:
+  1. Las tipografías del blueprint §12 (Inter, Urbanist) estaban declaradas como `font-family` en `globals.css` pero **nunca se habían cargado** (sin `<link>` de Google Fonts, sin `next/font`) — todo renderizaba con la fuente del sistema.
+  2. `app/layout.tsx` seguía con el `<title>` y `lang="en"` del scaffold de `create-vinext-app` (*"vinext on Cloudflare Workers"*), visibles en la pestaña del navegador de todo el sitio.
+  3. La función de **3 templates de página pública** (`modern`/`classic`/`minimal`) del blueprint §12, con su selector en `/dashboard/website`, nunca se construyó — solo existía un único diseño fijo. Esto no era un recorte de alcance deliberado, era un olvido: el blueprint lo pone explícitamente dentro del MVP (la sección "Fuera de alcance" solo descarta el *editor visual*, no los 3 templates fijos).
+- Se corrigió lo básico: `app/layout.tsx` ahora carga Inter/Urbanist de Google Fonts de verdad, tiene `lang="es"`, título/descripción reales con un `template` de título (`%s · SaaS Inmobiliario`) para que cada sección herede un título sensato; se agregó `export const metadata` a las páginas clave del dashboard (resumen, propiedades, propietarios, oportunidades, contactos) y a `/login`/`/register` (que al ser `"use client"` necesitaron un `layout.tsx` propio, server component, solo para la metadata). Se reemplazaron clases `slate-*` sueltas por los tokens del blueprint (`border-border`, `text-dark`) en los formularios y páginas que las tenían.
+- Se construyeron los 3 templates reales: `AgencyHeader` y `PropertyGrid`/`PropertyCard` ahora toman un prop `template`/`variant` y cambian de layout según `tenants.template` (que ya existía en el schema desde la Fase 0, nunca se había usado hasta ahora): `modern` (lo que ya había: grilla de 3 columnas, header compacto), `classic` (header centrado con logo grande + lista con imagen a la izquierda, componente nuevo `PropertyListRow.tsx`), `minimal` (sin header con tarjeta, tipografía grande, grilla de 2 columnas con fotos a sangre, sin bordes).
+- Backend nuevo: `lib/db/tenant-scope.ts` gana `getTenantForTenant`/`updateTenantForTenant`; `app/api/agency/route.ts` (`GET`/`PATCH`, solo admin para escribir).
+- UI nueva: `/dashboard/settings/agency` (editar nombre, logo vía `ImageUploader`, color de marca, contacto, descripción) y `/dashboard/website` (selector de template con 3 tarjetas + preview por iframe de la página pública real).
+- **Verificado en vivo** (mismo D1 local de las fases anteriores): se registró un tenant nuevo, se hizo `PATCH /api/agency` cambiando nombre/color/ciudad (se reflejó en la respuesta y en la página pública), se cambió el template a `classic` y a `minimal` en secuencia, y en cada caso se confirmó con `curl` que el HTML de `/[slug]` y `/[slug]/property/[id]` trae las clases/estructura específicas de ese template (no solo que el campo se guardó en la base de datos).
+
+**Decisiones tomadas:**
+- Decisión: las diferencias entre templates se concentran en `AgencyHeader` y en el listado/grid de propiedades (grid vs. lista vs. grid a sangre), no en la página de detalle de cada propiedad.
+  **Por qué:** es exactamente lo que describe la tabla del blueprint §12 ("Header... grilla de 3 cols" / "Header centrado... lista con imagen a la izquierda" / "Sin sidebar, tipografía grande, fotos a sangre") — ninguna fila menciona que el detalle cambie por template. Diferenciar también el detalle habría sido inventar alcance que el blueprint no pide.
+- Decisión: el picker de templates en `/dashboard/website` guarda con un botón explícito ("Usar este template"), no al hacer clic en la tarjeta.
+  **Por qué:** cambiar el diseño público de la inmobiliaria es una acción con consecuencia visible para cualquiera que visite el sitio — no debería poder pasar por un clic accidental.
+
+**Bloqueadores / deuda técnica abierta:**
+- `app/page.tsx` (la landing del SaaS en `/`) sigue siendo el placeholder del scaffold de vinext — no se tocó en esta pasada, es un trabajo de contenido/marketing aparte, no una corrección de diseño técnico.
+- No se tocó `/dashboard/settings/team` (invitación de asesores) ni el SEO del catálogo público — quedan como las próximas tareas de la Fase 3.
+- El picker de color (`<input type="color">`) es el control nativo del navegador, sin un selector de paleta curado — suficiente para el "básico" que pidió el usuario, se podría refinar después si hace falta.
+
+**Próximo paso:** seguir con el resto de la Fase 3 — SEO del catálogo público, invitación de asesores, y después el QA end-to-end contra los 15 criterios de done del blueprint.
