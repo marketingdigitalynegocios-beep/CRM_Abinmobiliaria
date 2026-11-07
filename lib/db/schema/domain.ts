@@ -250,7 +250,9 @@ export const aiAgentConfigs = sqliteTable(
     whatsappWabaId: text("whatsapp_waba_id"),
     whatsappPhoneNumberId: text("whatsapp_phone_number_id"),
     whatsappDisplayNumber: text("whatsapp_display_number"),
-    whatsappAccessTokenEnc: text("whatsapp_access_token_enc"),
+    // Sin whatsapp_access_token_enc por tenant: se envía con un System User
+    // Token único a nivel de app (env.META_SYSTEM_USER_TOKEN) — ver blueprint
+    // §11/§14/§15 riesgo 10, resuelto en v1.7 auditando WhatsflowAI-V2.
     geminiKeyEnc: text("gemini_key_enc"),
     systemPrompt: text("system_prompt"),
     welcomeMessage: text("welcome_message"),

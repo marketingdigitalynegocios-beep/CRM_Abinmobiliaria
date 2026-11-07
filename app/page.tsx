@@ -1,67 +1,61 @@
-const links = [
+const features = [
   {
-    href: "https://github.com/cloudflare/vinext",
-    label: "vinext",
+    title: "Catálogo propio",
+    description:
+      "Tu página pública con tu marca, tus colores y tu slug — publica propiedades con fotos, mapa y filtros en minutos.",
   },
   {
-    href: "https://developers.cloudflare.com/workers/",
-    label: "Workers",
+    title: "CRM de leads",
+    description:
+      "Cada contacto que escribe desde tu página entra solo al pipeline. Califica, abre oportunidades y agenda visitas sin salir del dashboard.",
+  },
+  {
+    title: "Agente de WhatsApp",
+    description:
+      "Conecta tu número y deja que un agente de IA responda preguntas sobre tus propiedades disponibles, 24/7.",
   },
 ];
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10 text-slate-950">
-      <section className="mx-auto flex max-w-4xl flex-col gap-8">
-        <div className="flex flex-col gap-4">
-          <p className="text-sm font-semibold uppercase tracking-wide text-orange-600">
-            vinext + Cloudflare Workers
-          </p>
-          <h1 className="max-w-2xl text-4xl font-semibold leading-tight sm:text-5xl">
-            Build Next.js-style apps with Vite and deploy them to the edge.
-          </h1>
-          <p className="max-w-2xl text-lg leading-8 text-slate-700">
-            This App Router project is wired for vinext, Tailwind CSS, and Cloudflare Workers.
-          </p>
-        </div>
+    <main className="min-h-screen bg-light-gray">
+      <section className="mx-auto flex max-w-4xl flex-col gap-8 px-6 py-20 text-center">
+        <p className="text-sm font-semibold uppercase tracking-wide text-primary">
+          Para inmobiliarias medianas en Colombia
+        </p>
+        <h1 className="font-display text-4xl font-semibold leading-tight text-dark sm:text-5xl">
+          Tu propia plataforma inmobiliaria, bajo tu marca
+        </h1>
+        <p className="mx-auto max-w-2xl text-lg leading-8 text-gray">
+          Publica tu portafolio, gestiona tus clientes en un CRM y responde por WhatsApp con un
+          agente de IA — todo en un solo sistema.
+        </p>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="rounded-lg border border-slate-200 bg-white p-5">
-            <h2 className="font-semibold">Develop</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Run the vinext dev server locally.</p>
-            <code className="mt-4 block rounded bg-slate-100 px-3 py-2 text-sm">pnpm run dev</code>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-5">
-            <h2 className="font-semibold">Build</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Create Worker-ready production output.</p>
-            <code className="mt-4 block rounded bg-slate-100 px-3 py-2 text-sm">pnpm run build</code>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-5">
-            <h2 className="font-semibold">Deploy</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Ship the generated Worker with cf.</p>
-            <code className="mt-4 block rounded bg-slate-100 px-3 py-2 text-sm">pnpm run deploy</code>
-          </div>
-        </div>
-
-        <nav className="flex flex-wrap gap-3">
-          {links.map((link) => (
-            <a
-              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100"
-              href={link.href}
-              key={link.href}
-              rel="noreferrer"
-              target="_blank"
-            >
-              {link.label}
-            </a>
-          ))}
+        <div className="mx-auto flex flex-wrap items-center justify-center gap-3">
           <a
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100"
-            href="/api/hello"
+            className="rounded-md bg-primary px-6 py-3 text-sm font-semibold text-white hover:bg-primary-light"
+            href="/register"
           >
-            API route
+            Crear mi cuenta
           </a>
-        </nav>
+          <a
+            className="rounded-md border border-border bg-white px-6 py-3 text-sm font-medium text-dark hover:bg-light-gray"
+            href="/login"
+          >
+            Iniciar sesión
+          </a>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-5xl px-6 pb-20">
+        <div className="grid gap-5 sm:grid-cols-3">
+          {features.map((feature) => (
+            <div className="rounded-lg border border-border bg-white p-6" key={feature.title}>
+              <h2 className="font-display text-lg font-semibold text-dark">{feature.title}</h2>
+              <p className="mt-2 text-sm leading-6 text-gray">{feature.description}</p>
+            </div>
+          ))}
+        </div>
       </section>
     </main>
   );

@@ -60,7 +60,6 @@ CREATE TABLE `ai_agent_configs` (
 	`whatsapp_waba_id` text,
 	`whatsapp_phone_number_id` text,
 	`whatsapp_display_number` text,
-	`whatsapp_access_token_enc` text,
 	`gemini_key_enc` text,
 	`system_prompt` text,
 	`welcome_message` text,

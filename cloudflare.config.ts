@@ -30,6 +30,9 @@ export default defineConfig({
       RESEND_FROM_EMAIL: bindings.secret(),
       META_APP_SECRET: bindings.secret(),
       META_WEBHOOK_VERIFY_TOKEN: bindings.secret(),
+      // System User Token único a nivel de app (ver blueprint §11/§14, v1.7) —
+      // se genera a mano una sola vez en Meta Business Manager, no por tenant.
+      META_SYSTEM_USER_TOKEN: bindings.secret(),
       ENCRYPTION_KEY: bindings.secret(),
       BETTER_AUTH_SECRET: bindings.secret(),
       CLOUDFLARE_IMAGES_API_TOKEN: bindings.secret(),

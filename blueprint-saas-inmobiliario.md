@@ -1,7 +1,9 @@
 # BLUEPRINT TÉCNICO — SaaS Inmobiliario
-**Versión 1.7 — Noviembre 2026 | Stack Cloudflare (hosting + base de datos) | Para implementación con Antigravity**
+**Versión 1.8 — Noviembre 2026 | Stack Cloudflare (hosting + base de datos) | Para implementación con Antigravity**
 
 > **Estado:** `BORRADOR` → cambiar a `APROBADO` cuando esté revisado
+>
+> **Cambio de versión 1.7 → 1.8:** Fase 4 (agente de WhatsApp) construida completa — Embedded Signup, webhook con verificación de firma real, integración con Gemini, config/prueba del agente — y verificada en vivo contra las APIs reales de Meta y Gemini (bloqueada solo por no tener credenciales de cuenta real, no por código sin probar). QA completo contra los 15 criterios de done del blueprint §13 (11 cumplidos y verificados, 2 parciales, 1 diferido a propósito, 1 pendiente de aprovisionamiento real de Cloudflare) y revisión de los 13 puntos de la sección 15 (9 resueltos y verificados, 3 siguen abiertos sin maquillar: backups de D1, límite de tamaño de D1, plan de Cloudflare Images). Se construyó además la landing real del SaaS en `/` (antes el placeholder del scaffold de vinext). Ver §11, §13, §15.
 >
 > **Cambio de versión 1.6 → 1.7:** se audita (solo lectura) una integración Meta Tech Provider propia ya en producción (`WhatsflowAI-V2`) para resolver los dos riesgos abiertos del agente de WhatsApp. Riesgo 10 (token): se adopta un **System User Token único a nivel de app** (`META_SYSTEM_USER_TOKEN`) en vez del token por tenant del Embedded Signup — `ai_agent_configs.whatsapp_access_token_enc` deja de ser necesario. Riesgo 11 (ventana 24h/templates): el MVP solo responde a mensajes entrantes, así que no aplica tal como estaba planteado. Ver §11, §14 y §15.
 >
@@ -1337,6 +1339,28 @@ El MVP está listo para lanzar cuando:
 14. El deploy en Cloudflare Workers funciona sin errores (`wrangler deploy`), con D1 migrado y todos los secrets cargados
 15. Existe al menos una prueba que confirma que un usuario del tenant A no puede leer ni modificar datos del tenant B (sustituye la garantía que antes daba RLS)
 
+### Estado real contra estos 15 criterios (QA, 2026-11-07)
+
+| # | Estado | Nota |
+|---|---|---|
+| 1 | ✅ Cumple | `/register` crea tenant+admin en un solo paso; `/dashboard/settings/agency` edita logo/colores/slug después |
+| 2 | ✅ Cumple | Verificado en vivo (Fase 1) |
+| 3 | ✅ Cumple | Verificado en vivo (Fase 1) |
+| 4 | ✅ Cumple | Verificado en vivo (Fase 1): CSV de 2 filas importado, bulk-status probado |
+| 5 | ✅ Cumple | Verificado en vivo, incluidos los 3 templates (Fase 3) |
+| 6 | ✅ Cumple | Verificado en vivo (Fase 1) |
+| 7 | ✅ Cumple | Verificado en vivo con las claves de prueba de Turnstile (Fase 2) |
+| 8 | ✅ Cumple | Verificado en vivo vía API (`PATCH /api/deals/[id]`, lo mismo que dispara el drag); el gesto de arrastrar con mouse en el navegador no se probó a mano |
+| 9 | ✅ Cumple | Verificado en vivo, incluida la detección de conflicto de agenda (Fase 2) |
+| 10 | 🟡 Parcial | UI y backend completos (Embedded Signup, config, "probar agente"); `POST /api/ai-agent/test` llega de verdad a la API de Gemini (confirmado con un error real de "API key inválida", no un mock) — falta probar la conexión real de un número (requiere cuenta Meta Tech Provider real) |
+| 11 | 🟡 Parcial | Mismo código que probó el punto 10: arma el contexto de propiedades y llama a Gemini de verdad; falta un número de WhatsApp real conectado para confirmar el envío de punta a punta |
+| 12 | ⬜ Diferido | Billing (Fase 5) diferido a pedido del usuario — uso interno, no SaaS vendido a terceros por ahora |
+| 13 | ✅ Cumple | Verificado en vivo (Fase 3) — incluye un bug real encontrado y corregido (título heredando la marca del SaaS) |
+| 14 | ⬜ Pendiente | Requiere aprovisionar una cuenta de Cloudflare real (`cf d1 create`, secrets, deploy) — pendiente del usuario desde la Fase 0 |
+| 15 | ✅ Cumple | 29 tests unitarios, varios específicos de aislamiento multitenant (properties, leads, deals, visits, property_owners) |
+
+**Resumen:** 11 de 15 cumplidos y verificados en vivo, 2 parciales (bloqueados solo por no tener credenciales reales de Meta/Gemini), 1 diferido a propósito (Billing), 1 pendiente del aprovisionamiento real de Cloudflare. Nada quedó "roto" o sin intentar — los pendientes son todos de credenciales/cuentas externas que requieren al usuario, no de código por escribir.
+
 ---
 
 ## 14. DECISIONES TÉCNICAS
@@ -1395,18 +1419,18 @@ El perfil del usuario objetivo (§1) ya opera un portafolio de 20–200 propieda
 
 Esto es lo que v1.1 no necesitaba resolver (porque Supabase/Vercel lo resolvían por su cuenta) y que esta migración obliga a decidir explícitamente antes de implementar:
 
-1. **Pérdida de RLS nativo.** D1 no tiene Row Level Security. El aislamiento multitenant pasa a ser una convención de código (§6, §14). Mitigación mínima para aprobar el MVP: todas las queries de dominio pasan por `lib/db/tenant-scope.ts`, y existe al menos una prueba automatizada que confirma el aislamiento entre dos tenants (criterio de done #13).
-2. **El formulario público de leads no tenía protección anti-spam en v1.1.** `POST /api/leads` es un endpoint público sin autenticación; sin rate limiting ni captcha es un vector obvio de spam/abuso. Se agregó Cloudflare Turnstile en esta versión (§7, §11) — evaluar si además conviene una regla de Rate Limiting de Workers sobre ese endpoint.
+1. ~~Pérdida de RLS nativo.~~ **RESUELTO Y VERIFICADO (2026-11-07):** toda query de dominio pasa por `lib/db/tenant-scope.ts`; 29 tests unitarios, varios específicos de aislamiento multitenant (properties, leads, deals, visits, property_owners) — ver criterio de done #15.
+2. ~~El formulario público de leads no tenía protección anti-spam en v1.1.~~ **RESUELTO Y VERIFICADO EN VIVO (2026-11-07):** Cloudflare Turnstile integrado en `ContactForm.tsx`, probado de punta a punta contra el endpoint real de Siteverify con las claves de prueba públicas de Cloudflare. Queda como mejora opcional de v2, no bloqueante: una regla de Rate Limiting de Workers sobre el mismo endpoint, como capa adicional.
 3. ~~Compatibilidad de Next.js 14 con vinext sin confirmar.~~ **RESUELTO (v1.6):** `create-vinext-app` funciona, genera un proyecto App Router + TypeScript + Tailwind funcional con `--platform cloudflare --image-optimization cloudflare-images`. No hay un paquete `next` como tal — vinext reimplementa esa superficie de API sobre Vite, así que la pregunta de "versión de Next" no aplica igual que en v1.0–v1.5. **También resuelto:** la firma de `bindings.d1()` es `{ id?: string, name?: string, dev?: BindingDevOptions }` (de `@cloudflare/config`), confirmada leyendo los tipos instalados.
-4. **`@google/generative-ai` sin verificar en el runtime de Workers.** Se optó por `fetch` directo al REST API de Gemini (§11) para eliminar el riesgo en vez de verificarlo; si en el futuro se prefiere volver al SDK, confirmar antes su compatibilidad.
-5. **El modelo de "equipo/invitaciones" cambia de dueño.** En v1.1 la tabla `users` y sus políticas RLS eran propias; en v1.2 `user`/`session`/`account`/`verification` las gestiona Better Auth. El flujo de `/dashboard/settings/team` (invitar asesores) debe construirse sobre el mecanismo de invitación de Better Auth, no reinventarse.
+4. ~~`@google/generative-ai` sin verificar en el runtime de Workers.~~ **RESUELTO Y VERIFICADO (2026-11-07):** `fetch` directo al REST API de Gemini desde `lib/ai/agent.ts`, confirmado en vivo contra el endpoint real (`POST /api/ai-agent/test` llegó a Gemini de verdad y devolvió un error real de "API key inválida" — no un mock). Si en el futuro se prefiere el SDK, igual habría que confirmar su compatibilidad antes.
+5. ~~El modelo de "equipo/invitaciones" cambia de dueño.~~ **RESUELTO Y VERIFICADO EN VIVO (2026-11-07):** `/dashboard/settings/team` construido sobre el mecanismo de magic link de Better Auth (no un plugin de "organización" — `tenantId` sigue siendo un `additionalField` de `user`). El envío real del email de invitación no se pudo confirmar sin una `RESEND_API_KEY` real, pero la creación de cuenta y el manejo del error de envío sí se verificaron en vivo.
 6. **Backups y recuperación de D1 no estaban en el alcance original.** Documentar antes del lanzamiento cómo se hace un respaldo (Time Travel de D1, o `wrangler d1 export` periódico) — en v1.1 esto lo cubría Supabase de forma transparente.
-7. **Dinero almacenado como `NUMERIC(14,2)` en v1.1 pasa a `INTEGER` (centavos) en D1**, porque SQLite no tiene un tipo decimal exacto. Esto es una mejora de corrección, pero implica que toda la capa de validación (`lib/validations/property.ts`, `lib/validations/lead.ts`) y la UI de montos deben trabajar en centavos y formatear solo en la vista — no es un cambio cosmético, hay que propagarlo.
+7. ~~Dinero almacenado como `NUMERIC(14,2)` en v1.1 pasa a `INTEGER` (centavos) en D1.~~ **RESUELTO Y VERIFICADO (2026-11-07):** propagado de punta a punta — `priceCents`/`dealValueCents`/`budgetMinCents`/`budgetMaxCents` en centavos en schema, validaciones y UI (conversión solo en la vista), confirmado en los 29 tests y en las verificaciones en vivo de Fase 1/2.
 8. **Límite de tamaño por base D1.** Verificar el límite vigente antes de aprobar el diseño de "un único D1 compartido" como definitivo; si el crecimiento proyectado lo supera, la vía de escape (D1 por tenant) debe quedar documentada antes, no decidirse en caliente en producción.
 9. **Cloudflare Images requiere un plan que lo habilite.** Confirmar el costo y el plan necesario antes de dar esta pieza por definitiva, ya que reemplaza por completo a Supabase Storage.
 10. ~~Token de WhatsApp Cloud API por tenant puede expirar.~~ **RESUELTO (v1.7):** se audita (solo lectura) una integración Tech Provider propia ya en producción (`WhatsflowAI-V2`) y se confirma que el patrón correcto es un **System User Token único a nivel de app** (`META_SYSTEM_USER_TOKEN`), generado una sola vez a mano en Meta Business Manager con permisos `whatsapp_business_management`/`whatsapp_business_messaging`, no el token que devuelve el intercambio de Embedded Signup. Ver §11 para el detalle y el paso manual pendiente (asignar cada WABA nuevo al usuario de sistema). Pendiente menor sin resolver: no hay evidencia en esa auditoría de que el token de sistema esté configurado explícitamente como "no expira" en el dashboard de Meta al generarlo — confirmar esa casilla al generarlo para este proyecto.
 11. ~~Ventana de 24 horas y plantillas aprobadas de Meta.~~ **RESUELTO para el alcance del MVP (v1.7):** el agente del MVP solo responde a mensajes entrantes (nunca escribe primero), y una respuesta en la misma conversación siempre cae dentro de la ventana de 24h — no aplica el riesgo tal como está planteado. El riesgo real (template aprobado para mensaje proactivo) solo existiría si se mandaran mensajes de WhatsApp fuera de una respuesta directa, y eso no está en el alcance del MVP (las notificaciones de CRM van por Resend, no por WhatsApp). Si Meta igual rechaza un envío por ventana (error `131047`), se maneja de forma reactiva (capturar el error e informar), igual que lo hace `WhatsflowAI-V2` — no hay que construir un chequeo de ventana por adelantado.
-12. **Una sola URL de webhook para todos los tenants.** Al ser una app Tech Provider, Meta envía todos los mensajes de todos los WABAs conectados a la misma URL; si la resolución por `phone_number_id` falla o ese índice no está bien mantenido, un mensaje puede quedar sin enrutar a ningún tenant. Vale la pena un log/alerta cuando llega un `phone_number_id` sin config asociada.
+12. **Una sola URL de webhook para todos los tenants.** Al ser una app Tech Provider, Meta envía todos los mensajes de todos los WABAs conectados a la misma URL; si la resolución por `phone_number_id` falla o ese índice no está bien mantenido, un mensaje puede quedar sin enrutar a ningún tenant. **Parcialmente resuelto y verificado (2026-11-07):** se confirmó en vivo que un `phone_number_id` sin config asociada responde `200 OK` sin romper nada (no se reintenta en bucle); queda pendiente el log/alerta explícito para notar esos casos en producción — no bloqueante para el MVP.
 13. **Gaps de CRM/Inventario revisados contra `houzez-crm` pero diferidos a v2 (decisión explícita, no olvido):** stages/fuentes/next_action configurables por tenant en vez de `CHECK` fijos; timeline de `activities` y `notes` múltiples por lead/deal (hoy solo hay un campo `notes` de texto); tipos de consulta "avalúo" y "crédito hipotecario" en la captura de leads; y en Inventario: `land_area` (área de lote, distinta de `area_m2`), `video_url`, `virtual_tour_url` y una tabla `floor_plans` repetible. Si el piloto real muestra que alguno de estos bloquea el uso diario, revisar antes de congelar el schema de `deals`/`properties`.
 
 ---
@@ -1431,7 +1455,7 @@ Esto es lo que v1.1 no necesitaba resolver (porque Supabase/Vercel lo resolvían
 - [x] Estructura de carpetas incluye todas las páginas y componentes mencionados
 - [x] Criterios de done específicos y verificables para este proyecto, incluyendo la prueba de aislamiento multitenant
 - [x] Decisiones técnicas justificadas con trade-offs explícitos
-- [ ] **Pendiente antes de pasar a `APROBADO`:** de los 13 puntos de la sección 15, quedan resueltos 1, 3, 10 y 11 (ver changelog v1.6/v1.7); sigue pendiente el 9 (plan/costo de Cloudflare Images) antes de cerrar la Fase 1 del todo, y el resto son deuda técnica menor o de v2.
+- [ ] **Pendiente antes de pasar a `APROBADO`:** de los 13 puntos de la sección 15, quedan resueltos y verificados 1, 2, 3, 4, 5, 7, 10, 11 y 12 (ver changelog v1.6/v1.7/v1.8). Siguen abiertos de verdad: **6** (backups de D1), **8** (límite de tamaño de D1) y **9** (plan/costo de Cloudflare Images) — los tres requieren decisiones de cuenta/infraestructura real, no código. **13** queda diferido a v2 a propósito (gaps de Houzez). El criterio de done #12 (Wompi) y #14 (deploy real a Cloudflare) del §13 también siguen pendientes — Billing está diferido a pedido del usuario, y el deploy real requiere que el usuario aprovisione su cuenta de Cloudflare.
 
 ---
 

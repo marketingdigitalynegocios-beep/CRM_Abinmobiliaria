@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import slugify from "slugify";
 import type { Db } from "./client";
 import {
+  aiAgentConfigs,
   deals,
   leadPropertyInterests,
   leads,
@@ -670,5 +671,89 @@ export async function getPublishedPropertyForTenant(
         eq(properties.visibility, "published")
       )
     );
+  return rows[0] ?? null;
+}
+
+// =============================================
+// Agente de IA / WhatsApp (Fase 4)
+// =============================================
+
+export async function getAiAgentConfigForTenant(db: Db, tenantId: string) {
+  const rows = await db
+    .select()
+    .from(aiAgentConfigs)
+    .where(eq(aiAgentConfigs.tenantId, tenantId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Crea la fila de config si todavía no existe (primera vez que el admin
+ * entra a `/dashboard/ai-agent`) o la actualiza si ya existe. `geminiKeyEnc`
+ * se pasa ya cifrado (ver lib/crypto.ts) — esta función no cifra nada, solo
+ * persiste.
+ */
+export async function upsertAiAgentConfigForTenant(
+  db: Db,
+  tenantId: string,
+  input: { isActive?: boolean; systemPrompt?: string; welcomeMessage?: string; geminiKeyEnc?: string }
+) {
+  const existing = await getAiAgentConfigForTenant(db, tenantId);
+
+  if (!existing) {
+    const [row] = await db
+      .insert(aiAgentConfigs)
+      .values({ id: crypto.randomUUID(), tenantId, ...input })
+      .returning();
+    return row;
+  }
+
+  if (Object.keys(input).length === 0) return existing;
+
+  const [row] = await db
+    .update(aiAgentConfigs)
+    .set(input)
+    .where(eq(aiAgentConfigs.tenantId, tenantId))
+    .returning();
+  return row ?? existing;
+}
+
+/** Guarda lo que devuelve Embedded Signup — nunca un token por tenant (ver blueprint §11/§15 riesgo 10). */
+export async function saveWhatsappConnectionForTenant(
+  db: Db,
+  tenantId: string,
+  connection: { whatsappWabaId: string; whatsappPhoneNumberId: string; whatsappDisplayNumber?: string }
+) {
+  const existing = await getAiAgentConfigForTenant(db, tenantId);
+
+  if (!existing) {
+    const [row] = await db
+      .insert(aiAgentConfigs)
+      .values({ id: crypto.randomUUID(), tenantId, ...connection })
+      .returning();
+    return row;
+  }
+
+  const [row] = await db
+    .update(aiAgentConfigs)
+    .set(connection)
+    .where(eq(aiAgentConfigs.tenantId, tenantId))
+    .returning();
+  return row ?? existing;
+}
+
+/**
+ * Resuelve qué tenant corresponde a un mensaje entrante de WhatsApp — el
+ * webhook de Meta es uno solo para toda la app (ver blueprint §11), así que
+ * `phone_number_id` es la única forma de saber de qué tenant es cada mensaje.
+ * Sin filtro de tenant propio porque ESTE es el punto que resuelve el tenant,
+ * no uno que lo reciba ya resuelto.
+ */
+export async function getAiAgentConfigByPhoneNumberId(db: Db, phoneNumberId: string) {
+  const rows = await db
+    .select()
+    .from(aiAgentConfigs)
+    .where(eq(aiAgentConfigs.whatsappPhoneNumberId, phoneNumberId))
+    .limit(1);
   return rows[0] ?? null;
 }

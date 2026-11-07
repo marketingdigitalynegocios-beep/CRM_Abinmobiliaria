@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "202721b0-656c-4d1a-a1c4-360d3dc8e3c1",
+  "id": "db017823-3649-4687-a604-f033945729ad",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -403,13 +403,6 @@
         },
         "whatsapp_display_number": {
           "name": "whatsapp_display_number",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "whatsapp_access_token_enc": {
-          "name": "whatsapp_access_token_enc",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

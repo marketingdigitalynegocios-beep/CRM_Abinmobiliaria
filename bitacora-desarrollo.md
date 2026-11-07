@@ -430,3 +430,38 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 - La landing del SaaS (`app/page.tsx`) sigue siendo el placeholder del scaffold — queda pendiente como tarea de contenido, no de diseño técnico.
 
 **Próximo paso:** conseguir una API key real de Resend para cerrar la verificación de email, y después el QA end-to-end contra los 15 criterios de done del blueprint §13.
+
+---
+
+### 2026-11-07 — Fase 4 completa (agente de WhatsApp) + landing real + QA final de todo el MVP
+
+**Quién:** sesión de planeación con Claude
+**Fase:** 3 (cierre) + 4
+
+**Qué se hizo:**
+- El usuario pidió diferir también Resend y seguir con "todo lo que falta" en una sola tanda. Se interpretó como: cerrar lo que quedaba de la Fase 3 (landing, QA, revisión de riesgos) y construir completa la Fase 4 (agente de WhatsApp), dejando Billing y Resend diferidos como ya se había acordado.
+- **Schema:** se quitó `whatsapp_access_token_enc` de `ai_agent_configs` (ya no hace falta — token de sistema único, no por tenant) y se regeneró la migración desde cero (`0000_minor_shotgun.sql`, reemplaza a `0000_kind_speed.sql`) — no había nada desplegado a un D1 real todavía, así que se pudo squashear en vez de agregar una migración incremental.
+- **Backend de WhatsApp:** `lib/whatsapp/graph-client.ts` (`sendWhatsappMessage` con el System User Token, `verifyMetaWebhookSignature` con Web Crypto HMAC-SHA256 y comparación en tiempo constante), `lib/whatsapp/embedded-signup.ts` (intercambio de `code` + suscripción del WABA a los webhooks de la app), `lib/ai/agent.ts` (arma el contexto de propiedades activas y llama a Gemini por `fetch` directo). `lib/db/tenant-scope.ts` gana el CRUD de `ai_agent_configs` (incluido `getAiAgentConfigByPhoneNumberId`, el que resuelve a qué tenant pertenece cada mensaje entrante).
+- **Endpoints:** `POST /api/whatsapp/connect`, `GET/POST /api/webhooks/whatsapp`, `GET/PUT /api/ai-agent`, `POST /api/ai-agent/test`.
+- **UI:** `/dashboard/ai-agent` con `WhatsAppConnectButton.tsx` (carga el SDK de Facebook, maneja el evento `postMessage` `WA_EMBEDDED_SIGNUP` para capturar `waba_id`/`phone_number_id`, y el callback de `FB.login` para el `code`) y `AiAgentForm.tsx` (config + "probar agente").
+- **Landing real:** `app/page.tsx` dejó de ser el placeholder de vinext — ahora es la landing del SaaS descrita en blueprint §9 (hero, 3 features, CTA a `/register`/`/login`). Se borró también `/api/hello` (ruta de ejemplo del scaffold, sin referencias en el proyecto).
+- **QA final:** se revisaron los 15 criterios de done del blueprint §13 y los 13 riesgos de la sección 15, uno por uno, y se dejó una tabla de estado real en el blueprint (ahora v1.8) — no un "todo listo" genérico. Resultado: 11/15 criterios cumplidos y verificados en vivo, 2 parciales (WhatsApp — bloqueados solo por no tener cuenta Meta real), 1 diferido a propósito (Wompi), 1 pendiente del usuario (deploy real a Cloudflare). De los 13 riesgos: 9 resueltos y verificados, 3 siguen abiertos de verdad (backups de D1, límite de tamaño de D1, plan de Cloudflare Images — decisiones de cuenta, no código), 1 diferido a v2 a propósito.
+- **Verificación en vivo (lo más importante de esta entrada):** sin tener una cuenta real de Meta ni una API key real de Gemini, se verificó igual que el código de integración es correcto contra las APIs reales, no contra mocks:
+  - `POST /api/ai-agent/test` con una Gemini key falsa → la llamada SÍ llegó a `generativelanguage.googleapis.com` y volvió un error real de Google ("API key not valid"), confirmando que `lib/ai/agent.ts` arma la request correctamente.
+  - `POST /api/whatsapp/connect` con credenciales Meta falsas → la llamada SÍ llegó a `graph.facebook.com` y volvió "Invalid Client ID", confirmando que `lib/whatsapp/embedded-signup.ts` también está bien armado.
+  - El webhook se probó de punta a punta con una firma HMAC-SHA256 calculada a mano con el mismo secret de `.dev.vars`: firma válida → `200 OK`; firma inválida → `401`; `phone_number_id` sin config asociada → `200 OK` sin romper (confirma el riesgo 12 de §15 en la parte de "no debe tumbar nada").
+  - El cifrado de la Gemini key se confirmó leyendo la fila directo de la base de datos (no el texto plano, un blob cifrado real).
+- **Gotcha de entorno encontrado y resuelto:** al borrar el archivo `.sqlite` del D1 local para aplicar el schema nuevo (sin el campo quitado), la primera corrida del script de migración se aplicó a un archivo que el propio script creó (porque corrió antes de que Miniflare abriera el suyo), mientras el servidor de `dev` ya en marcha seguía apuntando a su propio archivo (mismo nombre, pero recreado después) — resultado: "no such table: tenants" en el primer intento de registro. Se resolvió re-aplicando la migración directo sobre el archivo que ya existía mientras el servidor estaba corriendo (el mismo patrón que había funcionado en sesiones anteriores). Queda anotado por si se repite: después de borrar el `.sqlite` de Miniflare, esperar a que el servidor haga su primera query real (o reiniciarlo) antes de aplicar la migración, no asumir que el archivo ya existe.
+
+**Decisiones tomadas:**
+- Decisión: `waba_id`/`phone_number_id` se obtienen del evento `postMessage` (`WA_EMBEDDED_SIGNUP`) que el propio SDK de Meta dispara en el navegador, no con una llamada extra a la Graph API para "descubrirlos" a partir del token.
+  **Por qué:** es el patrón documentado y estándar del flujo de Embedded Signup — inventar una llamada adicional de descubrimiento habría sido reconstruir algo que Meta ya entrega gratis.
+- Decisión: regenerar la migración desde cero (squash) en vez de agregar una migración incremental para quitar la columna.
+  **Por qué:** no hay nada desplegado en un D1 real todavía — mantener una sola migración "0000" es más simple de leer que una serie de migraciones que documentan cambios que nunca llegaron a producción.
+
+**Bloqueadores abiertos (todos de cuenta/credenciales externas, no de código):**
+- Falta una cuenta Meta Business Manager real con la app Tech Provider del equipo para: generar `META_SYSTEM_USER_TOKEN`, obtener `NEXT_PUBLIC_META_APP_ID`/`NEXT_PUBLIC_META_CONFIG_ID` reales, y conectar un número de WhatsApp real de principio a fin.
+- Falta una `GEMINI_API_KEY`/Gemini key de tenant real para confirmar que la respuesta generada tiene sentido (hoy solo se confirmó que la *llamada* a la API es correcta).
+- Siguen pendientes de antes: aprovisionar Cloudflare real (Fase 0), `RESEND_API_KEY` real (diferido junto con Billing), y los 3 riesgos de infraestructura de la sección 15 (backups, límite de D1, plan de Cloudflare Images).
+
+**Próximo paso:** el MVP está, en términos de código, completo salvo Billing (diferido) y Resend (diferido). Lo único que falta para un lanzamiento real son credenciales/cuentas externas (Cloudflare, Meta, Gemini) que dependen del usuario — no hay más fases de desarrollo activo planeadas hasta que esas cuentas estén listas, o hasta que el usuario pida retomar Billing/Resend.

@@ -10,6 +10,7 @@ const links = [
   { href: "/dashboard/properties/owners", label: "Propietarios" },
   { href: "/dashboard/crm", label: "Oportunidades" },
   { href: "/dashboard/crm/contacts", label: "Contactos" },
+  { href: "/dashboard/ai-agent", label: "Agente de WhatsApp" },
   { href: "/dashboard/website", label: "Mi página pública" },
   { href: "/dashboard/settings/agency", label: "Mi inmobiliaria" },
   { href: "/dashboard/settings/team", label: "Equipo" },
