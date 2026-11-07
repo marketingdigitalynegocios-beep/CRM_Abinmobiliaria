@@ -12,6 +12,7 @@ const links = [
   { href: "/dashboard/crm/contacts", label: "Contactos" },
   { href: "/dashboard/website", label: "Mi página pública" },
   { href: "/dashboard/settings/agency", label: "Mi inmobiliaria" },
+  { href: "/dashboard/settings/team", label: "Equipo" },
 ];
 
 export function Sidebar() {

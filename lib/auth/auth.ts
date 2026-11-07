@@ -4,6 +4,7 @@ import { magicLink } from "better-auth/plugins/magic-link";
 import { env } from "cloudflare:workers";
 import { getDb } from "../db/client";
 import * as schema from "../db/schema";
+import { sendEmail } from "../email/resend";
 
 /**
  * Better Auth se construye por request, nunca como singleton a nivel de
@@ -12,9 +13,6 @@ import * as schema from "../db/schema";
  * al cargar el archivo. `env` viene de `cloudflare:workers` (API nativa del
  * runtime, respaldada por AsyncLocalStorage), así que no hace falta pasarlo
  * a mano por cada Route Handler. Ver bitacora-desarrollo.md, entrada de Fase 1.
- *
- * `sendMagicLink` queda sin implementar por ahora (placeholder): el envío real
- * por Resend es trabajo de la Fase 2 (notificaciones), no de la Fase 0/1.
  */
 export function getAuth() {
   const db = getDb(env.DB);
@@ -42,9 +40,19 @@ export function getAuth() {
     },
     plugins: [
       magicLink({
-        sendMagicLink: async () => {
-          throw new Error(
-            "sendMagicLink no implementado todavía — se conecta a Resend en la Fase 2 (ver plan-implementacion.md)"
+        sendMagicLink: async ({ email, url }) => {
+          await sendEmail(
+            {
+              to: email,
+              subject: "Tu enlace para ingresar",
+              html: `
+                <p>Hola,</p>
+                <p>Haz clic en el siguiente enlace para ingresar a tu cuenta. El enlace expira en unos minutos.</p>
+                <p><a href="${url}">Ingresar</a></p>
+                <p>Si no pediste este enlace, puedes ignorar este mensaje.</p>
+              `,
+            },
+            env
           );
         },
       }),

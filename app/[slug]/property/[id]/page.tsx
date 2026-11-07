@@ -36,11 +36,14 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const imageUrl = buildImageUrl(property.coverImageId, "public");
 
   return {
-    title: `${property.title} — ${tenant.name}`,
+    // `absolute`: mismo motivo que en app/[slug]/page.tsx — no heredar el
+    // template de título del dashboard en el sitio público del tenant.
+    title: { absolute: `${property.title} — ${tenant.name}` },
     description: property.description ?? undefined,
     openGraph: {
       title: property.title,
       description: property.description ?? undefined,
+      type: "website",
       images: imageUrl ? [imageUrl] : undefined,
     },
   };

@@ -20,10 +20,13 @@ const errorClass = "mt-1 text-xs text-danger";
 export default function LoginPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
+  const [sendingMagicLink, setSendingMagicLink] = useState(false);
 
   const {
     register,
     handleSubmit,
+    getValues,
     formState: { errors },
   } = useForm<LoginInput>({ resolver: zodResolver(loginSchema) });
 
@@ -42,6 +45,26 @@ export default function LoginPage() {
       window.location.href = "/dashboard";
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleMagicLink() {
+    const email = getValues("email");
+    if (!email) {
+      setServerError("Escribe tu email arriba para recibir el enlace");
+      return;
+    }
+    setServerError(null);
+    setSendingMagicLink(true);
+    try {
+      const { error } = await authClient.signIn.magicLink({ email, callbackURL: "/dashboard" });
+      if (error) {
+        setServerError(error.message ?? "No se pudo enviar el enlace");
+        return;
+      }
+      setMagicLinkSent(true);
+    } finally {
+      setSendingMagicLink(false);
     }
   }
 
@@ -76,6 +99,21 @@ export default function LoginPage() {
           {submitting ? "Ingresando..." : "Ingresar"}
         </button>
       </form>
+
+      <div className="mt-4 text-center">
+        {magicLinkSent ? (
+          <p className="text-sm text-success">Revisa tu email, te enviamos un enlace para ingresar.</p>
+        ) : (
+          <button
+            className="text-sm font-medium text-primary disabled:opacity-60"
+            disabled={sendingMagicLink}
+            onClick={handleMagicLink}
+            type="button"
+          >
+            {sendingMagicLink ? "Enviando..." : "O ingresa sin contraseña (enlace por email)"}
+          </button>
+        )}
+      </div>
 
       <p className="mt-4 text-center text-sm text-gray">
         ¿No tienes cuenta? <a className="font-medium text-primary" href="/register">Regístrate</a>

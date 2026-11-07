@@ -404,3 +404,29 @@ No hace falta llenar todas las secciones si no aplican (p. ej. una sesión sin b
 - El picker de color (`<input type="color">`) es el control nativo del navegador, sin un selector de paleta curado — suficiente para el "básico" que pidió el usuario, se podría refinar después si hace falta.
 
 **Próximo paso:** seguir con el resto de la Fase 3 — SEO del catálogo público, invitación de asesores, y después el QA end-to-end contra los 15 criterios de done del blueprint.
+
+---
+
+### 2026-11-07 — Fase 3, segunda tanda: SEO del catálogo, magic link real, invitación de asesores
+
+**Quién:** sesión de planeación con Claude
+**Fase:** 3
+
+**Qué se hizo:**
+- SEO: `app/[slug]/page.tsx` gana `openGraph` (title/description/image del logo del tenant, `type: "website"`) — antes solo tenía `title`/`description` planos.
+- `lib/email/resend.ts` — wrapper mínimo sobre el SDK de Resend (`sendEmail({to, subject, html}, env)`).
+- `lib/auth/auth.ts` — `sendMagicLink` deja de ser un placeholder que lanzaba error (desde la Fase 0) y ahora manda un email real por Resend con el link de ingreso. Esto también activa la opción "ingresar sin contraseña" que ya estaba prometida en `/login` pero sin funcionar — se agregó el botón correspondiente.
+- Invitación de equipo: `lib/validations/team.ts`, `lib/db/tenant-scope.ts` (`listTeamMembersForTenant`, `isEmailAlreadyRegistered`), `app/api/team/invite/route.ts` (solo admin), `/dashboard/settings/team` (tabla de equipo + `InviteTeamMemberForm`).
+- **Bug real encontrado y corregido durante la verificación en vivo:** el `<title>` de las páginas públicas (`/[slug]`, `/[slug]/property/[id]`) estaba heredando el `title.template` del layout raíz (`%s · SaaS Inmobiliario`, agregado en la primera tanda de esta fase) — una inmobiliaria se veía en la pestaña del navegador como *"Inmobiliaria SEO · SaaS Inmobiliario"*, cargando la marca del SaaS en el sitio de un cliente. Se corrigió con `title: { absolute: ... }` en ambas páginas, que en Next.js rompe la herencia del template del layout padre. Sin la verificación en vivo (correr el server real y mirar el HTML, no solo que compilara) esto no se habría detectado — el build y los tipos no tienen forma de saber que un título es "semánticamente incorrecto".
+
+**Decisiones tomadas:**
+- Decisión: la invitación de equipo crea la cuenta directo (con una contraseña aleatoria que el invitado nunca usa) y manda un magic link, en vez de un flujo de "token de invitación pendiente" con una tabla nueva.
+  **Por qué:** no usamos el plugin de "organización" de Better Auth (nuestro modelo es `tenantId` como additionalField, no organizaciones) y no justificaba agregar una tabla nueva solo para esto — reutiliza exactamente el mismo mecanismo de magic link que ya se estaba construyendo para el login.
+- Decisión: si falla el envío del email de invitación pero la cuenta ya se creó, se responde `200` con un `warning`, no un error.
+  **Por qué:** la cuenta del asesor sí quedó creada (se puede confirmar en la tabla de equipo); tratarlo como una falla completa sería engañoso y llevaría a reintentar una invitación que en realidad ya existe parcialmente.
+
+**Bloqueadores abiertos:**
+- No hay una `RESEND_API_KEY` real todavía — se verificó que el código maneja bien el error (`invalid API key`, capturado y reportado como `warning`, no como fallo total), pero el envío real de un email no se pudo confirmar de punta a punta.
+- La landing del SaaS (`app/page.tsx`) sigue siendo el placeholder del scaffold — queda pendiente como tarea de contenido, no de diseño técnico.
+
+**Próximo paso:** conseguir una API key real de Resend para cerrar la verificación de email, y después el QA end-to-end contra los 15 criterios de done del blueprint §13.

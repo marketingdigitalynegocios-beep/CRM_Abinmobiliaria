@@ -9,6 +9,7 @@ import {
   propertyImages,
   propertyOwners,
   tenants,
+  user as userTable,
   visits,
 } from "./schema";
 import type { CreatePropertyInput, UpdatePropertyInput } from "../validations/property";
@@ -551,6 +552,34 @@ export async function getTenantBySlug(db: Db, slug: string) {
 export async function getTenantForTenant(db: Db, tenantId: string) {
   const rows = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
   return rows[0] ?? null;
+}
+
+// =============================================
+// Equipo / asesores (Fase 3 — /dashboard/settings/team)
+// =============================================
+
+export async function listTeamMembersForTenant(db: Db, tenantId: string) {
+  return db
+    .select({
+      id: userTable.id,
+      name: userTable.name,
+      email: userTable.email,
+      role: userTable.role,
+      isActive: userTable.isActive,
+      createdAt: userTable.createdAt,
+    })
+    .from(userTable)
+    .where(eq(userTable.tenantId, tenantId))
+    .orderBy(userTable.createdAt);
+}
+
+export async function isEmailAlreadyRegistered(db: Db, email: string) {
+  const rows = await db
+    .select({ id: userTable.id })
+    .from(userTable)
+    .where(eq(userTable.email, email))
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function updateTenantForTenant(

@@ -66,10 +66,13 @@ De las 5 cosas que bloqueaban el arranque, quedan 2 abiertas (ver bitacora-desar
 - [x] Diseño/UX básico: fuentes Inter/Urbanist cargadas de verdad (antes declaradas en CSS pero nunca importadas), `<title>`/`lang="es"` reales en vez del placeholder del scaffold, títulos por página en el dashboard, limpieza de clases `slate-*` sueltas a los tokens del blueprint §12 (2026-11-07) — **verificado en vivo**
 - [x] Los 3 templates de página pública (`modern`/`classic`/`minimal`, blueprint §12) con selector en `/dashboard/website` (incluye preview por iframe) — **verificado en vivo**: se registró un tenant, se cambió de template y se confirmó que el catálogo y el detalle público cambian de diseño en cada uno (2026-11-07)
 - [x] `/dashboard/settings/agency` (editar nombre/logo/colores/contacto/descripción del tenant ya creado — quedó pendiente de la Fase 1) + `GET/PATCH /api/agency` (solo admin) — **verificado en vivo** (2026-11-07)
-- [ ] Meta tags SEO en páginas públicas (`title`, `description`, `og:image`, `og:title`) — el detalle de propiedad ya tiene `generateMetadata` con Open Graph desde la Fase 1; falta revisar el catálogo y la landing del SaaS (`app/page.tsx`, todavía el placeholder del scaffold)
-- [ ] Invitación de asesores (`/dashboard/settings/team`) sobre el flujo de invitación de Better Auth
+- [x] Meta tags SEO en páginas públicas (`title`, `description`, `og:image`, `og:title`) — catálogo y detalle de propiedad, ambos con `title: { absolute: ... }` para no heredar el template de título del dashboard (`%s · SaaS Inmobiliario`) en el sitio público de cada tenant — **verificado en vivo**, incluyendo el bug real que se encontró y corrigió (título heredado antes de la corrección) (2026-11-07)
+- [x] Invitación de asesores (`/dashboard/settings/team`): cuenta creada directo dentro del tenant (contraseña aleatoria que nunca se usa) + magic link por Resend para entrar sin contraseña — **verificado en vivo** (creación de cuenta, bloqueo de email duplicado con 409); el envío real del email no se pudo probar sin una `RESEND_API_KEY` real, pero el manejo de ese error sí se verificó (no tumba la invitación completa) (2026-11-07)
+- [x] `sendMagicLink` de Better Auth implementado de verdad con Resend (antes placeholder que lanzaba error) — login sin contraseña ahora funciona en `/login` (2026-11-07)
+- [ ] Landing del SaaS (`app/page.tsx`) — sigue siendo el placeholder del scaffold de vinext; es contenido/marketing, no se tocó en esta pasada de diseño técnico
 - [ ] QA end-to-end contra los 15 criterios de done del blueprint (§13) — **el criterio #12 sobre Wompi se marca como no aplicable mientras el uso sea interno**, no como incumplido
 - [ ] Revisar que los 13 puntos de la sección 15 del blueprint estén resueltos o explícitamente diferidos con nota
+- [ ] Conseguir una `RESEND_API_KEY` real y probar el envío de verdad (invitación de equipo + magic link de login)
 
 **Criterio de salida:** la página pública tiene SEO correcto, el admin puede invitar asesores y editar los datos de su inmobiliaria, y el MVP pasa el QA end-to-end salvo Billing (diferido, ver Fase 5).
 

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db/client";
 import { getTenantBySlug, listPublishedPropertiesForTenant } from "@/lib/db/tenant-scope";
+import { buildImageUrl } from "@/lib/images/delivery-url";
 import { AgencyHeader } from "@/components/public/AgencyHeader";
 import { PropertyFilters } from "@/components/public/PropertyFilters";
 import { PropertyGrid } from "@/components/public/PropertyGrid";
@@ -18,9 +19,22 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const tenant = await getTenantBySlug(db, slug);
   if (!tenant) return {};
 
+  const description =
+    tenant.description ?? `Propiedades en ${tenant.city ?? "Colombia"} — ${tenant.name}`;
+  const imageUrl = buildImageUrl(tenant.logoImageId, "public");
+
   return {
-    title: tenant.name,
-    description: tenant.description ?? `Propiedades en ${tenant.city ?? "Colombia"} — ${tenant.name}`,
+    // `absolute` evita que el <title> herede el template "%s · SaaS
+    // Inmobiliario" del layout raíz (ver app/layout.tsx) — el sitio público
+    // de cada inmobiliaria es de ellos, no debe llevar la marca del SaaS.
+    title: { absolute: tenant.name },
+    description,
+    openGraph: {
+      title: tenant.name,
+      description,
+      type: "website",
+      images: imageUrl ? [imageUrl] : undefined,
+    },
   };
 }
 
